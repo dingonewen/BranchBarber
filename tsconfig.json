@@ -2,8 +2,8 @@
   "compilerOptions": {
     "target": "ES2020",
     "lib": ["ES2020", "DOM", "DOM.Iterable", "WebWorker"],
-    "module": "ES2020",
-    "moduleResolution": "bundler",
+    "module": "ESNext",
+    "moduleResolution": "node",
     "jsx": "react-jsx",
     "strict": true,
     "noUnusedLocals": true,
