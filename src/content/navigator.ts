@@ -7,7 +7,7 @@ export function initNavigator(platform: Platform): void {
   _platform = platform;
 
   window.addEventListener("message", (event) => {
-    if (event.source !== window) return;
+    if (event.source !== (window as unknown as MessageEventSource)) return;
     const { type, domIndex } = event.data ?? {};
 
     if (type === "BRANCHBARBER_SCROLL_TO" && typeof domIndex === "number") {

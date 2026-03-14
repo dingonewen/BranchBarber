@@ -8,10 +8,10 @@ module.exports = (env, argv) => {
 
   return {
     entry: {
-      background: "./src/background/index.ts",
-      content: "./src/content/index.ts",
-      popup: "./src/popup/index.tsx",
-      worker: "./src/worker/embeddings.worker.ts",
+      background: path.resolve(__dirname, "src/background/index.ts"),
+      content: path.resolve(__dirname, "src/content/index.ts"),
+      popup: path.resolve(__dirname, "src/popup/index.tsx"),
+      worker: path.resolve(__dirname, "src/worker/embeddings.worker.ts"),
     },
     output: {
       path: path.resolve(__dirname, "dist"),
