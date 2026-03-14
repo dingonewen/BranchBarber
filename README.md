@@ -22,15 +22,92 @@ Technical learning isn't linear, but GenAI interfaces are. When users encounter 
 - **Local-First Privacy:** All chat data is stored locally in `IndexedDB`. No data leaves your browser unless you opt-in for cloud sync.
 - **Hybrid Branching:** Choose between automated AI detection or manual "Mark as Branch" triggers.
 
+| Feature | Description |
+|---|---|
+| **MutationObserver Engine** | Real-time DOM monitoring on ChatGPT & Gemini without page interference |
+| **Manual Branching** | Injected "✂ Branch Here" button on every AI response |
+| **Automatic Drift Detection** | Cosine similarity via `all-MiniLM-L6-v2` embeddings in a Web Worker |
+| **Visual Tree** | Interactive React Flow graph with color-coded nodes |
+| **Context Reset** | Click any node → "↩ Reset Here" to jump back via the Edit function |
+| **Branch Summarization** | Gemini API (optional) for 8-word node labels |
+| **Persistent Storage** | Dexie.js (IndexedDB) for full conversation trees across sessions |
+| **Privacy-First** | All computation local; no data leaves your browser (unless Gemini API key set) |
+
 ## 🛠️ Technical Stack (The Architecture)
 
-### Extension & Frontend
-- **Language:** TypeScript (Strict Mode)
-- **Framework:** React 18 + Vite
-- **Extension API:** Chrome Manifest V3
-- **State Management:** `Zustand`
-- **Visualization:** `React Flow`
-- **UI Components:** `Tailwind CSS` + `Shadcn/UI`
+| Layer | Technology |
+|---|---|
+| Framework | React 18 + TypeScript (strict) |
+| Extension | Manifest V3 |
+| State | Zustand |
+| Styling | Tailwind CSS |
+| Tree UI | React Flow |
+| Embeddings | Transformers.js (`all-MiniLM-L6-v2`) |
+| Storage | Dexie.js (IndexedDB) |
+| Summarization | Gemini 2.0 Flash API |
+| Bundler | Webpack 5 |
+
+## Architecture
+
+```
+src/
+├── background/      # MV3 Service Worker (message routing, keepalive)
+├── content/
+│   ├── index.ts         # Entry point
+│   ├── observer.ts      # MutationObserver + node processing pipeline
+│   ├── selectors.ts     # Resilient DOM selectors (ChatGPT & Gemini)
+│   ├── navigator.ts     # Scroll-to / Reset-to logic
+│   └── sidebar-injector.ts  # Shadow DOM React mount
+├── worker/
+│   └── embeddings.worker.ts  # Transformers.js (all-MiniLM-L6-v2) in Web Worker
+├── store/
+│   └── index.ts         # Zustand state management
+├── db/
+│   └── index.ts         # Dexie.js (IndexedDB) schema + queries
+├── utils/
+│   ├── index.ts         # cosineSimilarity, debounce, generateId
+│   └── gemini.ts        # Gemini API summarization
+├── components/
+│   ├── Sidebar.tsx          # Main sidebar shell
+│   ├── ConversationTree.tsx # React Flow canvas
+│   ├── TreeNode.tsx         # Custom node renderer
+│   ├── NodeDetail.tsx       # Selected node inspector
+│   ├── DriftAlert.tsx       # Drift detection banner
+│   └── SettingsPanel.tsx    # API key + threshold settings
+└── popup/
+    └── PopupApp.tsx     # Extension popup
+```
+## Setup
+
+### Development
+
+```bash
+npm install
+npm run dev       # watch mode
+```
+
+### Production Build
+
+```bash
+npm run build
+# Output: dist/
+```
+
+### Load in Chrome
+
+1. `chrome://extensions/` → Enable **Developer mode**
+2. **Load unpacked** → select `dist/` folder
+3. Navigate to `chatgpt.com` or `gemini.google.com`
+
+---
+
+## Configuration
+
+Open the BranchBarber sidebar → **Settings** tab:
+
+- **Gemini API Key** — optional; enables 8-word AI summaries on each node
+- **Drift Threshold** — cosine similarity threshold (default 60%) for flagging side quests
+- **Auto-detect side quests** — toggle automatic drift alerts
 
 ### Data & AI Logic
 - **Primary Storage:** `Dexie.js` (IndexedDB) - Chosen for zero-latency local persistence and high-frequency writes.
