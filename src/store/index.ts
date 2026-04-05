@@ -41,6 +41,7 @@ interface BranchBarberState {
   autoDetectBranches: boolean;
 
   // Actions
+  clearConversation: () => void;
   setConversation: (id: string, meta: ConversationMeta) => void;
   addNode: (node: ConversationNode) => void;
   updateNodeSummary: (id: string, summary: string) => void;
@@ -105,6 +106,9 @@ export const useBranchStore = create<BranchBarberState>((set) => ({
   geminiApiKey: "",
   driftThreshold: 0.6,
   autoDetectBranches: true,
+
+  clearConversation: () =>
+    set({ nodes: {}, rootNodeId: null, currentNodeId: null, selectedNodeId: null, driftAlert: null }),
 
   setConversation: (id, meta) =>
     set({ conversationId: id, conversationMeta: meta }),

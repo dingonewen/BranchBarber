@@ -1,0 +1,21 @@
+/* Catppuccin Latte palette — single source of truth */
+export const C = {
+  base:     "#eff1f5",
+  mantle:   "#e6e9ef",
+  crust:    "#dce0e8",
+  surface0: "#ccd0da",
+  surface1: "#bcc0cc",
+  surface2: "#acb0be",
+  overlay0: "#9ca0b0",
+  overlay1: "#8c8fa1",
+  subtext0: "#6c6f85",
+  subtext1: "#5c5f77",
+  text:     "#4c4f69",
+  mauve:    "#8839ef",
+  blue:     "#1e66f5",
+  green:    "#40a02b",
+  yellow:   "#df8e1d",
+  red:      "#d20f39",
+  teal:     "#179299",
+  lavender: "#7287fd",
+};

@@ -1,44 +1,51 @@
 import { useBranchStore } from "../store";
+import { db } from "../db";
+import { C } from "./theme";
 
 export function DriftAlert() {
-  const driftAlert = useBranchStore((s) => s.driftAlert);
+  const driftAlert    = useBranchStore((s) => s.driftAlert);
   const setDriftAlert = useBranchStore((s) => s.setDriftAlert);
-  const markAsBranch = useBranchStore((s) => s.markAsBranch);
-  const selectNode = useBranchStore((s) => s.selectNode);
+  const markAsBranch  = useBranchStore((s) => s.markAsBranch);
+  const selectNode    = useBranchStore((s) => s.selectNode);
 
   if (!driftAlert) return null;
 
-  const handleDismiss = () => setDriftAlert(null);
   const handleBranch = () => {
     markAsBranch(driftAlert.nodeId);
+    db.nodes.update(driftAlert.nodeId, { isBranch: true });
     selectNode(driftAlert.nodeId);
     setDriftAlert(null);
   };
 
   return (
-    <div className="mx-3 mb-3 p-3 bg-amber-950/70 border border-amber-500/50 rounded-xl text-xs">
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-amber-400 text-sm">⚠️</span>
-        <span className="font-semibold text-amber-300">Side Quest Detected</span>
+    <div style={{
+      padding: "10px 12px",
+      background: "#fef9ec",
+      border: `1px solid ${C.yellow}`,
+      borderRadius: 10, fontSize: 11, color: C.text,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 6 }}>
+        <span>⚠️</span>
+        <span style={{ fontWeight: 700, color: C.yellow }}>Side Quest Detected</span>
       </div>
-      <p className="text-amber-200/80 mb-2">
-        This turn drifted{" "}
-        <span className="font-semibold text-amber-300">
-          {Math.round(driftAlert.score * 100)}%
-        </span>{" "}
-        from your root goal. Consider branching.
+      <p style={{ margin: "0 0 8px", color: C.subtext1 }}>
+        Drifted{" "}
+        <strong style={{ color: C.yellow }}>{Math.round(driftAlert.score * 100)}%</strong>
+        {" "}from root goal.
       </p>
-      <div className="flex gap-2">
-        <button
-          onClick={handleBranch}
-          className="flex-1 py-1 px-2 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-medium transition-colors"
-        >
+      <div style={{ display: "flex", gap: 6 }}>
+        <button onClick={handleBranch} style={{
+          flex: 1, padding: "5px 0", borderRadius: 6, border: "none",
+          cursor: "pointer", background: C.yellow, color: "#fff",
+          fontWeight: 700, fontSize: 11,
+        }}>
           Mark Branch
         </button>
-        <button
-          onClick={handleDismiss}
-          className="px-2 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-400 transition-colors"
-        >
+        <button onClick={() => setDriftAlert(null)} style={{
+          padding: "5px 10px", borderRadius: 6,
+          border: `1px solid ${C.surface1}`, cursor: "pointer",
+          background: C.base, color: C.subtext0, fontSize: 11,
+        }}>
           Ignore
         </button>
       </div>

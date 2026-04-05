@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /home/user/BranchBarber status --short)",
+      "Bash(npm run:*)"
+    ]
+  }
+}

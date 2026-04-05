@@ -9,6 +9,7 @@ const mainConfig = (isDev) => ({
     background: path.resolve(__dirname, "src/background/index.ts"),
     content: path.resolve(__dirname, "src/content/index.ts"),
     popup: path.resolve(__dirname, "src/popup/index.tsx"),
+    offscreen: path.resolve(__dirname, "src/offscreen/index.ts"),
   },
   output: {
     path: path.resolve(__dirname, "dist"),
@@ -43,6 +44,7 @@ const mainConfig = (isDev) => ({
     new CopyWebpackPlugin({
       patterns: [
         { from: "public/manifest.json", to: "manifest.json" },
+        { from: "public/offscreen.html", to: "offscreen.html" },
         { from: "public/icons", to: "icons", noErrorOnMissing: true },
       ],
     }),
@@ -52,37 +54,7 @@ const mainConfig = (isDev) => ({
   optimization: { splitChunks: false },
 });
 
-// Worker bundle — must be a classic script (no ES module) so importScripts() works
-const workerConfig = (isDev) => ({
-  entry: {
-    worker: path.resolve(__dirname, "src/worker/embeddings.worker.ts"),
-  },
-  target: "webworker",
-  output: {
-    path: path.resolve(__dirname, "dist"),
-    filename: "[name].js",
-    clean: false,
-    globalObject: "self",
-  },
-  resolve: {
-    extensions: [".ts", ".js"],
-  },
-  module: {
-    rules: [
-      {
-        test: /\.tsx?$/,
-        use: "ts-loader",
-        exclude: /node_modules/,
-      },
-    ],
-  },
-  devtool: isDev ? "cheap-module-source-map" : false,
-  optimization: { splitChunks: false },
-});
-
 module.exports = (env, argv) => {
   const isDev = argv.mode === "development";
-  // Clean dist on first config only
-  mainConfig(isDev).output.clean = true;
-  return [mainConfig(isDev), workerConfig(isDev)];
+  return mainConfig(isDev);
 };

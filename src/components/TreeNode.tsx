@@ -1,103 +1,80 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 import type { TreeNode } from "../store";
+import { C } from "./theme";
 
-const STATUS_STYLES: Record<string, { bg: string; border: string; badge: string }> = {
-  root: {
-    bg: "bg-purple-950/80",
-    border: "border-purple-500",
-    badge: "bg-purple-600 text-white",
-  },
-  branch: {
-    bg: "bg-blue-950/80",
-    border: "border-blue-400",
-    badge: "bg-blue-500 text-white",
-  },
-  "side-quest": {
-    bg: "bg-amber-950/80",
-    border: "border-amber-400",
-    badge: "bg-amber-500 text-black",
-  },
-  normal: {
-    bg: "bg-zinc-900/90",
-    border: "border-zinc-600",
-    badge: "bg-zinc-600 text-white",
-  },
+const STATUS: Record<string, { bg: string; border: string; badge: string; label: string }> = {
+  root:         { bg: "#f0eeff", border: C.mauve,  badge: C.mauve,  label: "Root" },
+  branch:       { bg: "#eef3ff", border: C.blue,   badge: C.blue,   label: "Branch" },
+  "side-quest": { bg: "#fef9ec", border: C.yellow, badge: C.yellow, label: "Side Quest" },
+  normal:       { bg: C.base,   border: C.surface1, badge: "", label: "" },
 };
 
-const STATUS_LABELS: Record<string, string> = {
-  root: "Root",
-  branch: "Branch",
-  "side-quest": "Side Quest",
-  normal: "",
-};
+export const TreeNodeComponent = memo(({ data, selected }: NodeProps<TreeNode>) => {
+  const st = STATUS[data.status] ?? STATUS.normal;
 
-export const TreeNodeComponent = memo(
-  ({ data, selected }: NodeProps<TreeNode>) => {
-    const styles = STATUS_STYLES[data.status] ?? STATUS_STYLES.normal;
-    const label = STATUS_LABELS[data.status];
+  return (
+    <div style={{
+      position: "relative",
+      width: 180,
+      background: st.bg,
+      border: `2px solid ${selected ? C.mauve : st.border}`,
+      borderRadius: 10,
+      padding: "8px 10px",
+      fontSize: 11,
+      cursor: "pointer",
+      color: C.text,
+      boxShadow: selected
+        ? `0 0 0 3px ${C.lavender}44, 0 4px 12px rgba(0,0,0,0.1)`
+        : "0 2px 6px rgba(0,0,0,0.08)",
+      transition: "border-color 0.15s, box-shadow 0.15s",
+    }}>
+      <Handle type="target" position={Position.Left}
+        style={{ background: C.surface2, border: "none", width: 8, height: 8 }} />
 
-    return (
-      <div
-        className={`
-          relative w-48 rounded-xl border-2 p-3 text-xs shadow-lg cursor-pointer select-none
-          transition-all duration-150
-          ${styles.bg} ${styles.border}
-          ${selected ? "ring-2 ring-white/50 scale-105" : "hover:scale-102"}
-        `}
-      >
-        <Handle
-          type="target"
-          position={Position.Left}
-          className="!bg-zinc-400 !border-0 !w-2 !h-2"
-        />
+      {st.label && (
+        <span style={{
+          position: "absolute", top: -10, left: 8,
+          padding: "1px 6px", borderRadius: 4,
+          background: st.badge, color: "#fff",
+          fontSize: 9, fontWeight: 700,
+          textTransform: "uppercase", letterSpacing: "0.06em",
+        }}>
+          {st.label}
+        </span>
+      )}
 
-        {label && (
-          <span
-            className={`absolute -top-2.5 left-2 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${styles.badge}`}
-          >
-            {label}
-          </span>
-        )}
+      {data.status === "side-quest" && (
+        <span style={{ position: "absolute", top: -6, right: -6, fontSize: 12 }}>⚠️</span>
+      )}
 
-        {data.status === "side-quest" && (
-          <div className="absolute -top-1 -right-1 text-amber-400 text-sm" title="Potential context drift">
-            ⚠
-          </div>
-        )}
-
-        <div className="font-semibold text-white/90 leading-tight mb-1 line-clamp-2">
-          {data.summary || data.label}
-        </div>
-
-        {data.driftScore > 0 && data.status !== "root" && (
-          <div className="flex items-center gap-1 mt-1.5">
-            <div className="flex-1 h-1 rounded-full bg-zinc-700 overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all ${
-                  data.driftScore > 0.6
-                    ? "bg-red-500"
-                    : data.driftScore > 0.3
-                    ? "bg-amber-400"
-                    : "bg-emerald-500"
-                }`}
-                style={{ width: `${Math.min(data.driftScore * 100, 100)}%` }}
-              />
-            </div>
-            <span className="text-[9px] text-zinc-400 w-7 text-right">
-              {Math.round(data.driftScore * 100)}%
-            </span>
-          </div>
-        )}
-
-        <Handle
-          type="source"
-          position={Position.Right}
-          className="!bg-zinc-400 !border-0 !w-2 !h-2"
-        />
+      <div style={{
+        fontWeight: 600, color: C.text, lineHeight: 1.3, marginBottom: 4,
+        overflow: "hidden", display: "-webkit-box",
+        WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const,
+      }}>
+        {data.summary || data.label}
       </div>
-    );
-  }
-);
+
+      {data.driftScore > 0 && data.status !== "root" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
+          <div style={{ flex: 1, height: 3, borderRadius: 2, background: C.surface1, overflow: "hidden" }}>
+            <div style={{
+              height: "100%", borderRadius: 2,
+              width: `${Math.min(data.driftScore * 100, 100)}%`,
+              background: data.driftScore > 0.6 ? C.red : data.driftScore > 0.3 ? C.yellow : C.green,
+            }} />
+          </div>
+          <span style={{ fontSize: 9, color: C.overlay1, width: 26, textAlign: "right" }}>
+            {Math.round(data.driftScore * 100)}%
+          </span>
+        </div>
+      )}
+
+      <Handle type="source" position={Position.Right}
+        style={{ background: C.surface2, border: "none", width: 8, height: 8 }} />
+    </div>
+  );
+});
 
 TreeNodeComponent.displayName = "TreeNodeComponent";

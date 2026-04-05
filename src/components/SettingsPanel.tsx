@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useBranchStore } from "../store";
 import { saveSettings, getOrCreateSettings } from "../db";
+import { C } from "./theme";
 
 export function SettingsPanel() {
   const { geminiApiKey, driftThreshold, autoDetectBranches, setSettings } =
@@ -11,113 +12,118 @@ export function SettingsPanel() {
       setSettings: s.setSettings,
     }));
 
-  const [apiKey, setApiKey] = useState(geminiApiKey);
-  const [threshold, setThreshold] = useState(driftThreshold);
+  const [apiKey, setApiKey]         = useState(geminiApiKey);
+  const [threshold, setThreshold]   = useState(driftThreshold);
   const [autoDetect, setAutoDetect] = useState(autoDetectBranches);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved]           = useState(false);
+  const [error, setError]           = useState("");
 
   useEffect(() => {
-    getOrCreateSettings().then((s) => {
-      setApiKey(s.geminiApiKey);
-      setThreshold(s.driftThreshold);
-      setAutoDetect(s.autoDetectBranches);
-    });
+    getOrCreateSettings()
+      .then((s) => {
+        setApiKey(s.geminiApiKey);
+        setThreshold(s.driftThreshold);
+        setAutoDetect(s.autoDetectBranches);
+      })
+      .catch((e) => setError(String(e)));
   }, []);
 
   const handleSave = async () => {
-    const updates = {
-      geminiApiKey: apiKey,
-      driftThreshold: threshold,
-      autoDetectBranches: autoDetect,
-    };
-    await saveSettings(updates);
-    setSettings(updates);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    try {
+      const updates = { geminiApiKey: apiKey, driftThreshold: threshold, autoDetectBranches: autoDetect };
+      await saveSettings(updates);
+      setSettings(updates);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const inputStyle: React.CSSProperties = {
+    width: "100%", background: C.base,
+    border: `1px solid ${C.surface1}`,
+    borderRadius: 6, padding: "6px 10px",
+    fontSize: 11, color: C.text, outline: "none",
   };
 
   return (
-    <div className="flex flex-col gap-4 p-3 overflow-y-auto">
+    <div style={{ padding: 12, display: "flex", flexDirection: "column", gap: 20, color: C.text }}>
+
+      {error && (
+        <div style={{ padding: 8, background: "#ffecee", border: `1px solid ${C.red}`, borderRadius: 6, fontSize: 11, color: C.red }}>
+          {error}
+        </div>
+      )}
+
+      {/* Gemini API */}
       <div>
-        <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-3">
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.overlay1, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
           Gemini API
-        </h3>
-        <div>
-          <label className="block text-xs text-zinc-400 mb-1">
-            API Key (for branch summaries)
-          </label>
-          <input
-            type="password"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="AIza..."
-            className="w-full bg-zinc-800 border border-zinc-600 rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-purple-500 transition-colors"
-          />
-          <p className="text-[10px] text-zinc-600 mt-1">
-            Optional. Uses local fallback if empty. Never leaves your browser.
-          </p>
+        </div>
+        <label style={{ display: "block", fontSize: 11, color: C.subtext0, marginBottom: 4 }}>
+          API Key (optional — for branch summaries)
+        </label>
+        <input
+          type="password" value={apiKey} placeholder="AIza..."
+          onChange={(e) => setApiKey(e.target.value)}
+          style={inputStyle}
+        />
+        <div style={{ fontSize: 10, color: C.overlay1, marginTop: 4 }}>
+          Never leaves your browser.
         </div>
       </div>
 
+      {/* Drift Detection */}
       <div>
-        <h3 className="text-xs font-semibold text-zinc-400 uppercase tracking-wide mb-3">
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.overlay1, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
           Drift Detection
-        </h3>
+        </div>
 
-        <label className="flex items-center gap-2 mb-3 cursor-pointer">
-          <div
-            onClick={() => setAutoDetect((v) => !v)}
-            className={`relative w-8 h-4 rounded-full transition-colors ${
-              autoDetect ? "bg-purple-600" : "bg-zinc-600"
-            }`}
-          >
-            <div
-              className={`absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform ${
-                autoDetect ? "translate-x-4" : "translate-x-0.5"
-              }`}
-            />
+        <div
+          style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, cursor: "pointer" }}
+          onClick={() => setAutoDetect((v) => !v)}
+        >
+          <div style={{
+            width: 32, height: 18, borderRadius: 9, position: "relative",
+            background: autoDetect ? C.mauve : C.surface1, transition: "background 0.2s", flexShrink: 0,
+          }}>
+            <div style={{
+              position: "absolute", top: 3, width: 12, height: 12,
+              borderRadius: "50%", background: "#fff",
+              transition: "left 0.2s", left: autoDetect ? 17 : 3,
+            }} />
           </div>
-          <span className="text-xs text-zinc-300">Auto-detect side quests</span>
-        </label>
+          <span style={{ fontSize: 11, color: C.text }}>Auto-detect side quests</span>
+        </div>
 
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-xs text-zinc-400">Drift Threshold</label>
-            <span className="text-xs font-semibold text-purple-400">
-              {Math.round(threshold * 100)}%
-            </span>
-          </div>
-          <input
-            type="range"
-            min="0.3"
-            max="0.9"
-            step="0.05"
-            value={threshold}
-            onChange={(e) => setThreshold(parseFloat(e.target.value))}
-            className="w-full accent-purple-500"
-          />
-          <div className="flex justify-between text-[10px] text-zinc-600 mt-0.5">
-            <span>Sensitive</span>
-            <span>Relaxed</span>
-          </div>
-          <p className="text-[10px] text-zinc-600 mt-1">
-            Flag conversations that drift more than this from the root goal.
-          </p>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 11, color: C.subtext0 }}>Drift Threshold</span>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.mauve }}>{Math.round(threshold * 100)}%</span>
+        </div>
+        <input
+          type="range" min="0.3" max="0.9" step="0.05" value={threshold}
+          onChange={(e) => setThreshold(parseFloat(e.target.value))}
+          style={{ width: "100%", accentColor: C.mauve }}
+        />
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.overlay1, marginTop: 2 }}>
+          <span>Sensitive</span><span>Relaxed</span>
         </div>
       </div>
 
       <button
         onClick={handleSave}
-        className={`w-full py-2 rounded-lg text-xs font-semibold transition-all ${
-          saved
-            ? "bg-emerald-700 text-emerald-200"
-            : "bg-purple-700 hover:bg-purple-600 text-white"
-        }`}
+        style={{
+          padding: "8px 0", borderRadius: 8, border: "none", cursor: "pointer",
+          fontWeight: 700, fontSize: 12,
+          background: saved ? C.green : C.mauve,
+          color: "#fff", transition: "background 0.2s",
+        }}
       >
         {saved ? "✓ Saved" : "Save Settings"}
       </button>
 
-      <div className="text-[10px] text-zinc-700 text-center">
+      <div style={{ textAlign: "center", fontSize: 10, color: C.overlay1 }}>
         BranchBarber v1.0.0 · Local-first · No telemetry
       </div>
     </div>
