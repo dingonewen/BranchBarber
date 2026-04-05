@@ -6,7 +6,8 @@
   "permissions": [
     "storage",
     "activeTab",
-    "scripting"
+    "scripting",
+    "alarms"
   ],
   "host_permissions": [
     "https://chatgpt.com/*",
@@ -39,7 +40,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["worker.js", "*.wasm", "*.onnx"],
+      "resources": ["worker.js", "content.css", "*.js", "*.wasm", "*.mjs"],
       "matches": [
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",

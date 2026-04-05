@@ -42,7 +42,7 @@ export function initObserver(): void {
 function setupEmbeddingWorker(): void {
   try {
     const workerUrl = chrome.runtime.getURL("worker.js");
-    embeddingWorker = new Worker(workerUrl, { type: "module" });
+    embeddingWorker = new Worker(workerUrl);
     embeddingWorker.onmessage = (e: MessageEvent) => {
       const { type, id, embedding } = e.data;
       if (type === "embedding" && id && pendingEmbeddings.has(id)) {

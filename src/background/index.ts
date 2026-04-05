@@ -1,8 +1,14 @@
 // Background Service Worker (Manifest V3)
-// Handles message passing and extension lifecycle
 
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[BranchBarber] Extension installed");
+  chrome.alarms.create("keepAlive", { periodInMinutes: 0.4 });
+});
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === "keepAlive") {
+    // Heartbeat — keeps service worker alive
+  }
 });
 
 chrome.runtime.onMessage.addListener(
@@ -17,11 +23,3 @@ chrome.runtime.onMessage.addListener(
     return true;
   }
 );
-
-// Keep service worker alive for message handling
-chrome.alarms.create("keepAlive", { periodInMinutes: 0.4 });
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === "keepAlive") {
-    // Heartbeat
-  }
-});
