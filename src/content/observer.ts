@@ -34,15 +34,21 @@ export function initObserver(): void {
   platform = detectPlatform();
   if (platform === "unknown") return;
 
-  setupEmbeddingWorker();
-  initConversation();
+  void setupEmbeddingWorker();
+  void initConversation();
   startMutationObserver();
 }
 
-function setupEmbeddingWorker(): void {
+async function setupEmbeddingWorker(): Promise<void> {
   try {
     const workerUrl = chrome.runtime.getURL("worker.js");
-    embeddingWorker = new Worker(workerUrl);
+    // Fetch the script content first — bypasses host page CSP which blocks
+    // chrome-extension:// URLs in new Worker() when called from a content script
+    const res = await fetch(workerUrl);
+    const code = await res.text();
+    const blob = new Blob([code], { type: "application/javascript" });
+    const blobUrl = URL.createObjectURL(blob);
+    embeddingWorker = new Worker(blobUrl);
     embeddingWorker.onmessage = (e: MessageEvent) => {
       const { type, id, embedding } = e.data;
       if (type === "embedding" && id && pendingEmbeddings.has(id)) {
@@ -51,8 +57,11 @@ function setupEmbeddingWorker(): void {
         resolve(embedding);
       }
     };
-  } catch {
-    console.warn("[BranchBarber] Embedding worker unavailable");
+    embeddingWorker.onerror = (e) => {
+      console.warn("[BranchBarber] Worker error:", e.message);
+    };
+  } catch (e) {
+    console.warn("[BranchBarber] Embedding worker unavailable:", e);
   }
 }
 
