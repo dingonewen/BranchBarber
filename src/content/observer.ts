@@ -84,7 +84,7 @@ function isContextValid(): boolean {
 function requestEmbedding(text: string, id: string): Promise<number[]> {
   return new Promise((resolve) => {
     if (!isContextValid()) { resolve([]); return; }
-    const timeoutId = setTimeout(() => resolve([]), 60000);
+    const timeoutId = setTimeout(() => resolve([]), 5000);
     try {
       chrome.runtime.sendMessage(
         { type: "EMBED", id, text },
@@ -190,20 +190,21 @@ async function scanAndProcessTurns(): Promise<void> {
     let driftScore = 0;
     let embedding: number[] = [];
     const textForEmbedding = `${prompt} ${response}`.slice(0, 512);
-    embedding = await requestEmbedding(textForEmbedding, nodeId);
+    const parentNodeId = !isRoot ? (inSideQuest ? sideQuestCurrentId : mainBranchCurrentId) : null;
 
-    if (!isRoot) {
-      const parentNodeId = inSideQuest ? sideQuestCurrentId : mainBranchCurrentId;
-      const parentDbNode = parentNodeId ? await db.nodes.get(parentNodeId) : null;
-      if (embedding.length > 0 && parentDbNode?.embedding && parentDbNode.embedding.length > 0) {
+    // Fetch embedding + parent node in parallel
+    const [emb, parentDbNode] = await Promise.all([
+      requestEmbedding(textForEmbedding, nodeId),
+      parentNodeId ? db.nodes.get(parentNodeId) : Promise.resolve(null),
+    ]);
+    embedding = emb;
+
+    if (!isRoot && parentDbNode) {
+      if (embedding.length > 0 && parentDbNode.embedding && parentDbNode.embedding.length > 0) {
         driftScore = 1 - cosineSimilarity(embedding, parentDbNode.embedding);
-
       } else {
-        const parentText = parentDbNode ? `${parentDbNode.prompt} ${parentDbNode.response}` : "";
-        if (parentText) {
-          driftScore = lexicalDrift(textForEmbedding, parentText.slice(0, 512));
-
-        }
+        const parentText = `${parentDbNode.prompt} ${parentDbNode.response}`;
+        if (parentText) driftScore = lexicalDrift(textForEmbedding, parentText.slice(0, 512));
       }
     }
 
@@ -289,21 +290,22 @@ async function scanAndProcessTurns(): Promise<void> {
       mainBranchCurrentId = nodeId;
     }
 
+    // Use local label immediately so the node appears without waiting for Gemini
+    const fallbackLabel = prompt.slice(0, 60) + (prompt.length > 60 ? "..." : "");
     const useGemini = (settings.summaryMode ?? "local") === "gemini" && !!settings.geminiApiKey;
-    const summary = await summarizeWithGemini(prompt, response, useGemini ? settings.geminiApiKey : "");
 
     const node: ConversationNode = {
       id: nodeId, conversationId,
       parentId: isRoot ? null : parentId,
-      prompt, response, summary, embedding,
+      prompt, response, summary: fallbackLabel, embedding,
       driftScore, isBranch: false, isRoot, isSideQuest,
       domIndex: i, createdAt: Date.now(),
-      label: summary || `Turn ${i + 1}`,
+      label: fallbackLabel,
       depth, position,
     };
 
     await upsertNode(node);
-    await upsertConversation({
+    upsertConversation({
       id: conversationId, url: getConversationUrl(), title: getConversationTitle(),
       rootNodeId: isRoot ? nodeId : store.rootNodeId,
       currentNodeId: nodeId, createdAt: Date.now(), updatedAt: Date.now(),
@@ -311,6 +313,16 @@ async function scanAndProcessTurns(): Promise<void> {
 
     store.addNode(node);
     if (isSideQuest) store.setDriftAlert({ nodeId, score: driftScore });
+
+    // Async: upgrade label with Gemini summary (non-blocking)
+    if (useGemini) {
+      summarizeWithGemini(prompt, response, settings.geminiApiKey).then((summary) => {
+        if (summary && summary !== fallbackLabel) {
+          db.nodes.update(nodeId, { label: summary, summary });
+          useBranchStore.getState().updateNodeLabel(nodeId, summary);
+        }
+      });
+    }
 
     injectBranchButton(aiTurns[i], nodeId);
     processedCount = i + 1;
