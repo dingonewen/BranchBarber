@@ -5,20 +5,14 @@ import { NodeDetail } from "./NodeDetail";
 import { DriftAlert } from "./DriftAlert";
 import { SettingsPanel } from "./SettingsPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { C } from "./theme";
+import { C, branchColor } from "./theme";
 
 export { C };
 
 const MIN_W = 280;
 const MAX_W = 700;
 const DEFAULT_W = 340;
-
-const LEGEND = [
-  { color: C.mauve,    label: "Root" },
-  { color: C.blue,     label: "Branch" },
-  { color: C.yellow,   label: "Side Quest" },
-  { color: C.surface2, label: "Normal" },
-];
+const NODE_W = 240;
 
 export function Sidebar() {
   const [open, setOpen]   = useState(true);
@@ -28,10 +22,37 @@ export function Sidebar() {
   const startX   = useRef(0);
   const startW   = useRef(DEFAULT_W);
 
-  const nodeCount    = useBranchStore((s) => Object.keys(s.nodes).length);
+  const nodes        = useBranchStore((s) => s.nodes);
+  const nodeCount    = Object.keys(nodes).length;
   const driftAlert   = useBranchStore((s) => s.driftAlert);
   const selectedId   = useBranchStore((s) => s.selectedNodeId);
   const isProcessing = useBranchStore((s) => s.isProcessing);
+
+  // ── Dynamic legend — reflects actual node statuses + branch columns ───────
+  const legend = (() => {
+    const vals = Object.values(nodes);
+    if (vals.length === 0) return [];
+    const items: { color: string; label: string }[] = [];
+    if (vals.some((n) => n.status === "root"))
+      items.push({ color: C.mauve, label: "Root" });
+    if (vals.some((n) => n.status === "normal"))
+      items.push({ color: C.surface2, label: "Main Thread" });
+    if (vals.some((n) => n.status === "pending"))
+      items.push({ color: C.peach, label: "Side Quest?" });
+    // One entry per unique branch column, with its actual color
+    const branchCols = [...new Set(
+      vals.filter((n) => n.status === "side-quest")
+          .map((n) => Math.round(n.position.x / NODE_W))
+    )].sort((a, b) => a - b);
+    branchCols.forEach((col, i) => {
+      items.push({ color: branchColor(col * NODE_W), label: branchCols.length === 1 ? "Branch" : `Branch ${i + 1}` });
+    });
+    if (vals.some((n) => n.status === "ghost"))
+      items.push({ color: C.overlay1, label: "Placeholder" });
+    if (vals.some((n) => n.status !== "root" && n.parentId === null && n.status !== "ghost"))
+      items.push({ color: C.overlay0, label: "Isolated" });
+    return items;
+  })();
 
   useEffect(() => {
     const handler = () => setOpen(true);
@@ -137,7 +158,7 @@ export function Sidebar() {
           borderBottom: `1px solid ${C.surface0}`,
           flexShrink: 0,
         }}>
-          <span style={{ fontSize: 16 }}>🌿</span>
+          <img src={chrome.runtime.getURL("icons/icon48.png")} style={{ width: 20, height: 20, objectFit: "contain" }} />
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontWeight: 700, fontSize: 13, color: C.text, letterSpacing: "-0.01em" }}>
@@ -186,7 +207,7 @@ export function Sidebar() {
               <ErrorBoundary><ConversationTree /></ErrorBoundary>
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", padding: "6px 12px", borderTop: `1px solid ${C.surface0}`, flexShrink: 0, background: C.mantle }}>
-              {LEGEND.map(({ color, label }) => (
+              {legend.map(({ color, label }) => (
                 <div key={label} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: C.overlay1 }}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
                   <span>{label}</span>

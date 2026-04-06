@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef } from "react";
 import ReactFlow, {
   Background,
   Controls,
+  Panel,
   useNodesState,
   useEdgesState,
   type Node,
@@ -12,6 +13,7 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import { useBranchStore, getSubtreeIds } from "../store";
 import type { TreeNode } from "../store";
+import type { ConversationNode } from "../db";
 import { TreeNodeComponent } from "./TreeNode";
 import { C, branchColor } from "./theme";
 import { db } from "../db";
@@ -20,6 +22,20 @@ const NODE_TYPES = { treeNode: TreeNodeComponent };
 const SNAP_DIST  = 90;   // px — magnetic snap radius
 const NODE_W     = 240;
 const NODE_H     = 130;
+
+function treeNodeToDbNode(n: TreeNode, conversationId: string): ConversationNode {
+  return {
+    id: n.id, conversationId, parentId: n.parentId,
+    prompt: n.prompt, response: n.response, summary: n.summary, label: n.label,
+    embedding: null, driftScore: n.driftScore,
+    isBranch: n.status === "side-quest",
+    isRoot: n.status === "root",
+    isSideQuest: n.status === "pending" || n.status === "side-quest",
+    isGhost: n.status === "ghost",
+    domIndex: n.domIndex, createdAt: Date.now(),
+    depth: n.depth, position: n.position,
+  };
+}
 
 function buildFlowElements(
   storeNodes: Record<string, TreeNode>,
@@ -64,13 +80,16 @@ function isDescendantOf(nodes: Record<string, TreeNode>, nodeId: string, ancesto
 }
 
 export function ConversationTree() {
-  const storeNodes   = useBranchStore((s) => s.nodes);
-  const selectedId   = useBranchStore((s) => s.selectedNodeId);
-  const layoutKey    = useBranchStore((s) => s.layoutKey);
-  const selectNode   = useBranchStore((s) => s.selectNode);
-  const shiftSubtree = useBranchStore((s) => s.shiftSubtree);
-  const reparentNode = useBranchStore((s) => s.reparentNode);
+  const storeNodes    = useBranchStore((s) => s.nodes);
+  const selectedId    = useBranchStore((s) => s.selectedNodeId);
+  const layoutKey     = useBranchStore((s) => s.layoutKey);
+  const conversationId = useBranchStore((s) => s.conversationId);
+  const selectNode    = useBranchStore((s) => s.selectNode);
+  const shiftSubtree  = useBranchStore((s) => s.shiftSubtree);
+  const reparentNode  = useBranchStore((s) => s.reparentNode);
   const bumpLayoutKey = useBranchStore((s) => s.bumpLayoutKey);
+  const undoStack     = useBranchStore((s) => s.undoStack);
+  const undoAction    = useBranchStore((s) => s.undo);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -98,10 +117,48 @@ export function ConversationTree() {
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node<TreeNode>) => {
-      if (node.data.status !== "ghost") selectNode(node.id);
+      selectNode(node.id);
     },
     [selectNode]
   );
+
+  // ── Undo ─────────────────────────────────────────────────────────────────
+  const handleUndo = useCallback(async () => {
+    if (!conversationId) return;
+    const prevNodes = undoAction();
+    if (!prevNodes) return;
+
+    const restoredNodes = useBranchStore.getState().nodes;
+
+    // Nodes re-appearing after undo (were deleted by undone action) → re-insert in DB
+    for (const [id, n] of Object.entries(restoredNodes)) {
+      if (!prevNodes[id]) {
+        await db.nodes.put(treeNodeToDbNode(n, conversationId));
+      }
+    }
+
+    // Nodes that no longer exist after undo (were added by undone action) → delete from DB
+    for (const id of Object.keys(prevNodes)) {
+      if (!restoredNodes[id]) {
+        await db.nodes.delete(id);
+      }
+    }
+
+    // Nodes present in both → update mutable fields in DB
+    for (const [id, n] of Object.entries(restoredNodes)) {
+      if (prevNodes[id]) {
+        await db.nodes.update(id, {
+          parentId: n.parentId,
+          position: n.position,
+          isBranch: n.status === "side-quest",
+          isSideQuest: n.status === "pending" || n.status === "side-quest",
+          isGhost: n.status === "ghost",
+        });
+      }
+    }
+
+    bumpLayoutKey();
+  }, [conversationId, undoAction, bumpLayoutKey]);
 
   // ── Magnetic snap ────────────────────────────────────────────────────────
   const onNodeDragStop = useCallback(
@@ -167,7 +224,7 @@ export function ConversationTree() {
         justifyContent: "center", height: "100%", color: C.overlay1,
         fontSize: 11, padding: "0 16px", textAlign: "center", gap: 8,
       }}>
-        <div style={{ fontSize: 28 }}>🌿</div>
+        <img src={chrome.runtime.getURL("icons/icon128.png")} style={{ width: 48, height: 48, objectFit: "contain", opacity: 0.5 }} />
         <p style={{ fontWeight: 600, color: C.subtext0, margin: 0 }}>No conversation yet</p>
         <p style={{ margin: 0 }}>Start chatting and BranchBarber will map your tree.</p>
       </div>
@@ -194,7 +251,25 @@ export function ConversationTree() {
         elementsSelectable={true}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color={C.surface0} />
-        <Controls showInteractive={false} />
+        <Controls showInteractive={false} position="bottom-right" />
+        <Panel position="bottom-left">
+          <button
+            onClick={handleUndo}
+            disabled={undoStack.length === 0}
+            title="Undo last action"
+            style={{
+              display: "flex", alignItems: "center", gap: 5,
+              padding: "6px 10px", borderRadius: 8, border: "none", cursor: undoStack.length === 0 ? "default" : "pointer",
+              background: undoStack.length === 0 ? C.surface0 : C.surface1,
+              color: undoStack.length === 0 ? C.overlay0 : C.subtext1,
+              fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+              boxShadow: undoStack.length === 0 ? "none" : "0 1px 4px rgba(0,0,0,0.1)",
+              transition: "background 0.15s",
+            }}
+          >
+            ↩ Undo {undoStack.length > 0 && `(${undoStack.length})`}
+          </button>
+        </Panel>
       </ReactFlow>
     </div>
   );

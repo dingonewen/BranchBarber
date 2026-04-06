@@ -7,9 +7,9 @@ import { C, branchColor } from "./theme";
 const NODE_W = 240;
 const NODE_H = 130;
 
-const STATUS_LABEL: Record<string, string> = {
-  root: "Root Node", "side-quest": "Confirmed Branch",
-  pending: "Side Quest?", ghost: "Placeholder", normal: "",
+const STATUS_BADGE: Record<string, string> = {
+  root: "Root", "side-quest": "Branch",
+  pending: "Side Quest?", ghost: "Placeholder", normal: "Main Thread",
 };
 
 export function NodeDetail() {
@@ -20,10 +20,12 @@ export function NodeDetail() {
   const unmarkBranch  = useBranchStore((s) => s.unmarkBranch);
   const isolateNode   = useBranchStore((s) => s.isolateNode);
   const removeNode    = useBranchStore((s) => s.removeNode);
+  const reparentNode  = useBranchStore((s) => s.reparentNode);
   const addNode       = useBranchStore((s) => s.addNode);
   const shiftSubtree  = useBranchStore((s) => s.shiftSubtree);
   const bumpLayoutKey = useBranchStore((s) => s.bumpLayoutKey);
   const selectNode    = useBranchStore((s) => s.selectNode);
+  const pushUndo      = useBranchStore((s) => s.pushUndo);
 
   if (!selectedId) return null;
   const node = nodes[selectedId];
@@ -40,6 +42,7 @@ export function NodeDetail() {
   // entire subtree to the right-child slot. Both are children of the same parent.
   const handleBranch = async () => {
     if (!node.parentId || !conversationId) return;
+    pushUndo();
     const parent = nodes[node.parentId];
     if (!parent) return;
 
@@ -89,6 +92,7 @@ export function NodeDetail() {
 
   // ── Confirm pending (auto-detected, positions already correct) ────────────
   const handleConfirm = () => {
+    pushUndo();
     markAsBranch(selectedId);
     db.nodes.update(selectedId, { isBranch: true });
     bumpLayoutKey();
@@ -96,6 +100,7 @@ export function NodeDetail() {
 
   // ── Unbranch: snap back to ghost left-child slot, delete ghost ────────────
   const handleUnbranch = () => {
+    pushUndo();
     const ghost = Object.values(nodes).find(
       (n) => n.parentId === node.parentId && n.status === "ghost"
     );
@@ -116,8 +121,31 @@ export function NodeDetail() {
     bumpLayoutKey();
   };
 
+  // ── Delete ghost: reparent ghost's children to ghost's parent ────────────
+  const handleDeleteGhost = () => {
+    pushUndo();
+    for (const childId of node.children) {
+      reparentNode(childId, node.parentId);
+      db.nodes.update(childId, { parentId: node.parentId });
+    }
+    removeNode(selectedId);
+    db.nodes.delete(selectedId);
+    selectNode(null);
+    bumpLayoutKey();
+  };
+
+  // ── Delete isolated node (floating, no parent) ───────────────────────────
+  const handleDeleteIsolated = () => {
+    pushUndo();
+    removeNode(selectedId);
+    db.nodes.delete(selectedId);
+    selectNode(null);
+    bumpLayoutKey();
+  };
+
   // ── Detach: splice out of chain, children reconnect to grandparent ────────
   const handleDetach = () => {
+    pushUndo();
     const grandparentId = node.parentId;
     for (const childId of node.children) {
       db.nodes.update(childId, { parentId: grandparentId });
@@ -144,12 +172,20 @@ export function NodeDetail() {
     <div style={{
       background: C.mantle, border: `1px solid ${C.surface0}`,
       borderRadius: 10, padding: "10px 12px", fontSize: 11, color: C.text,
+      resize: "vertical", overflow: "auto", height: 210, minHeight: 120, maxHeight: 600,
     }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-        <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: accent }}>
-          {STATUS_LABEL[node.status] || `Turn ${node.domIndex + 1}`}
+      {/* Header: badge + turn number + close */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em",
+          color: "#fff", background: accent, borderRadius: 4, padding: "2px 6px" }}>
+          {STATUS_BADGE[node.status]}
         </span>
-        <button onClick={() => selectNode(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.overlay1, fontSize: 12, padding: 0 }}>✕</button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {node.domIndex >= 0 && (
+            <span style={{ fontSize: 10, color: C.overlay1 }}>Turn {node.domIndex + 1}</span>
+          )}
+          <button onClick={() => selectNode(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.overlay1, fontSize: 12, padding: 0 }}>✕</button>
+        </div>
       </div>
 
       {/* Pending explanation */}
@@ -159,14 +195,38 @@ export function NodeDetail() {
         </div>
       )}
 
-      <div style={{ fontWeight: 600, color: isGhost ? C.overlay1 : C.text, lineHeight: 1.4, marginBottom: 8, fontStyle: isGhost ? "italic" : "normal" }}>
-        {node.summary || node.label}
-      </div>
+      {/* Ghost label */}
+      {isGhost && (
+        <div style={{ fontStyle: "italic", color: C.overlay1, marginBottom: 8 }}>
+          {node.label}
+        </div>
+      )}
 
+      {/* User prompt (primary content) */}
+      {!isGhost && node.prompt && (
+        <div style={{ color: C.text, lineHeight: 1.5, marginBottom: 8 }}>
+          {node.prompt}
+        </div>
+      )}
+
+      {/* AI response — first sentence only */}
+      {!isGhost && node.response && (() => {
+        const full = node.response.trim();
+        const first = (full.match(/^.+?[.!?](?:\s|$)/s)?.[0] ?? full.slice(0, 150)).trim();
+        const preview = first.length < full.length ? first + "…" : first;
+        return (
+          <div style={{ color: C.subtext1, fontSize: 10, lineHeight: 1.4, marginBottom: 8,
+            background: C.crust, borderRadius: 6, padding: "5px 8px" }}>
+            {preview}
+          </div>
+        );
+      })()}
+
+      {/* Drift bar */}
       {!isGhost && node.driftScore > 0 && node.status !== "root" && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-            <span style={{ color: C.overlay1, fontSize: 10 }}>Drift from previous</span>
+            <span style={{ color: C.overlay1, fontSize: 10 }}>Topic drift</span>
             <span style={{ fontWeight: 700, fontSize: 10, color: node.driftScore > 0.6 ? C.red : node.driftScore > 0.3 ? C.yellow : C.green }}>
               {Math.round(node.driftScore * 100)}%
             </span>
@@ -174,15 +234,6 @@ export function NodeDetail() {
           <div style={{ height: 4, borderRadius: 2, background: C.surface0, overflow: "hidden" }}>
             <div style={{ height: "100%", borderRadius: 2, width: `${Math.min(node.driftScore * 100, 100)}%`,
               background: node.driftScore > 0.6 ? C.red : node.driftScore > 0.3 ? C.yellow : C.green }} />
-          </div>
-        </div>
-      )}
-
-      {!isGhost && (
-        <div style={{ background: C.crust, borderRadius: 6, padding: "6px 8px", marginBottom: 8 }}>
-          <div style={{ color: C.overlay1, fontSize: 10, marginBottom: 2 }}>Prompt</div>
-          <div style={{ color: C.subtext1, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" as const }}>
-            {node.prompt}
           </div>
         </div>
       )}
@@ -209,6 +260,13 @@ export function NodeDetail() {
         {/* Confirmed branch → only option is back to main */}
         {node.status === "side-quest" &&
           btn("↺ Back to Main", handleUnbranch, C.surface2)}
+
+        {/* Ghost placeholder → can be deleted (children reparent to ghost's parent) */}
+        {isGhost && btn("🗑 Delete", handleDeleteGhost, C.red)}
+
+        {/* Isolated (detached, no parent, not root) → can be deleted */}
+        {!isGhost && node.status !== "root" && node.parentId === null &&
+          btn("🗑 Delete", handleDeleteIsolated, C.red)}
       </div>
     </div>
   );

@@ -3,7 +3,10 @@
     "allow": [
       "Bash(git -C /home/user/BranchBarber status --short)",
       "Bash(npm run:*)",
-      "Bash(xargs ls:*)"
+      "Bash(xargs ls:*)",
+      "Bash(node -e \"require\\('sharp'\\)\")",
+      "Bash(node -e \"const s=require\\('sharp'\\);console.log\\('ok'\\)\")",
+      "Bash(node -e ':*)"
     ]
   }
 }

@@ -82,7 +82,7 @@ export function PopupApp() {
   return (
     <div style={S.wrap}>
       <div style={S.header}>
-        <span style={{ fontSize: 22 }}>🌿</span>
+        <img src={chrome.runtime.getURL("icons/icon48.png")} style={{ width: 28, height: 28, objectFit: "contain" }} />
         <div>
           <div style={S.title}>BranchBarber</div>
           <div style={S.sub}>Conversation Tree Extension</div>
@@ -115,14 +115,14 @@ export function PopupApp() {
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ display: "flex", gap: 8 }}>
             <button style={S.btn("#8839ef")} onClick={openSaved}>
-              Open Saved Tree
+              Open Tree
             </button>
-            <button style={S.btn("#179299", busy)} onClick={openNew} disabled={busy}>
-              {busy ? "Resetting..." : "New Tree"}
+            <button style={S.btn("#1e66f5", busy)} onClick={openNew} disabled={busy}>
+              {busy ? "Starting..." : "New Tree"}
             </button>
           </div>
           <div style={{ fontSize: 10, color: "#8c8fa1", textAlign: "center" }}>
-            "New Tree" clears saved nodes for this conversation
+            "New Tree" clears all saved nodes for this page
           </div>
         </div>
       )}

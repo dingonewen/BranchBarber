@@ -36,7 +36,10 @@ interface BranchBarberState {
   autoDetectBranches: boolean;
   // Bumped by snap/unbranch to force ReactFlow to re-read positions from store
   layoutKey: number;
+  undoStack: Array<Record<string, TreeNode>>;
 
+  pushUndo: () => void;
+  undo: () => Record<string, TreeNode> | null;
   clearConversation: () => void;
   setConversation: (id: string, meta: ConversationMeta) => void;
   addNode: (node: ConversationNode) => void;
@@ -97,13 +100,30 @@ export function getSubtreeIds(nodes: Record<string, TreeNode>, rootId: string): 
   return result;
 }
 
-export const useBranchStore = create<BranchBarberState>((set) => ({
+export const useBranchStore = create<BranchBarberState>((set, get) => ({
   conversationId: null, conversationMeta: null,
   nodes: {}, rootNodeId: null, currentNodeId: null,
   selectedNodeId: null, sidebarVisible: true, sidebarTab: "tree",
   isProcessing: false, driftAlert: null,
   geminiApiKey: "", driftThreshold: 0.6, autoDetectBranches: true,
   layoutKey: 0,
+  undoStack: [],
+
+  pushUndo: () => set((state) => ({
+    undoStack: [...state.undoStack.slice(-19), { ...state.nodes }],
+  })),
+
+  undo: () => {
+    const state = get();
+    if (state.undoStack.length === 0) return null;
+    const snapshot = state.undoStack[state.undoStack.length - 1];
+    const prev = state.nodes;
+    set({
+      nodes: buildChildren({ ...snapshot }),
+      undoStack: state.undoStack.slice(0, -1),
+    });
+    return prev;
+  },
 
   clearConversation: () =>
     set({ nodes: {}, rootNodeId: null, currentNodeId: null, selectedNodeId: null, driftAlert: null }),
