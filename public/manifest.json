@@ -41,7 +41,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["content.css", "*.js", "*.wasm", "*.mjs", "offscreen.html", "icons/*"],
+      "resources": ["content.css", "*.js", "*.wasm", "*.mjs", "offscreen.html", "icons/*", "ort-wasm-simd-threaded.*"],
       "matches": [
         "https://chatgpt.com/*",
         "https://chat.openai.com/*",
@@ -53,5 +53,8 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   }
 }

@@ -46,6 +46,13 @@ const mainConfig = (isDev) => ({
         { from: "public/manifest.json", to: "manifest.json" },
         { from: "public/offscreen.html", to: "offscreen.html" },
         { from: "public/icons", to: "icons", noErrorOnMissing: true },
+        // Copy ONNX Runtime WASM/MJS files with their original names so that
+        // ONNX Runtime can resolve them at runtime via wasmPaths.
+        // Webpack would otherwise rename them with content hashes.
+        { from: "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.mjs",  to: "ort-wasm-simd-threaded.jsep.mjs" },
+        { from: "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm", to: "ort-wasm-simd-threaded.jsep.wasm" },
+        { from: "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.wasm",      to: "ort-wasm-simd-threaded.wasm" },
+        { from: "node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.mjs",       to: "ort-wasm-simd-threaded.mjs" },
       ],
     }),
     new MiniCssExtractPlugin({ filename: "[name].css" }),
