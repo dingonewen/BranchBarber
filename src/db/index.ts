@@ -37,6 +37,7 @@ export interface AppSettings {
   autoDetectBranches: boolean;
   showSidebar: boolean;
   sidebarPosition: "left" | "right";
+  summaryMode: "gemini" | "local";
 }
 
 class BranchBarberDB extends Dexie {
@@ -66,6 +67,7 @@ export async function getOrCreateSettings(): Promise<AppSettings> {
     autoDetectBranches: true,
     showSidebar: true,
     sidebarPosition: "right",
+    summaryMode: "local",
   };
   await db.settings.put(defaults);
   return defaults;

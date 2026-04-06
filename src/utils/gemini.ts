@@ -15,6 +15,7 @@ async function callGemini(prompt: string, apiKey: string): Promise<string> {
   return (data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim();
 }
 
+// Called once per new conversation turn — generates an 8-word node label.
 export async function summarizeWithGemini(
   prompt: string,
   response: string,
@@ -32,13 +33,12 @@ export async function summarizeWithGemini(
   }
 }
 
-// Predicts what the main branch would have continued with if the conversation
-// hadn't drifted. Used to label ghost nodes.
+// Called once per branch — predicts what the main thread would have continued with.
 export async function inferGhostTopic(
   mainBranchContext: string,
   apiKey: string
 ): Promise<string> {
-  if (!apiKey) return "Main thread — tap to continue";
+  if (!apiKey) return "Continue main thread here";
   try {
     const text = await callGemini(
       `Based on this conversation, predict in 8 words what the user would likely have asked next to continue the main topic. Return only the prediction, no punctuation or quotes.\n\n${mainBranchContext.slice(0, 600)}`,

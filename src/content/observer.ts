@@ -114,6 +114,7 @@ async function initConversation(): Promise<void> {
     geminiApiKey: settings.geminiApiKey,
     driftThreshold: settings.driftThreshold,
     autoDetectBranches: settings.autoDetectBranches,
+    summaryMode: settings.summaryMode ?? "local",
   });
 
   if (existing) {
@@ -250,7 +251,7 @@ async function scanAndProcessTurns(): Promise<void> {
       store.addNode(ghostNode);
 
       // Async: fill ghost label with Gemini prediction
-      if (settings.geminiApiKey && branchFromId) {
+      if ((settings.summaryMode ?? "local") === "gemini" && settings.geminiApiKey && branchFromId) {
         db.nodes.get(branchFromId).then((n) => {
           const ctx = n ? `${n.prompt} ${n.response}` : "";
           inferGhostTopic(ctx, settings.geminiApiKey).then((label) => {
@@ -288,7 +289,8 @@ async function scanAndProcessTurns(): Promise<void> {
       mainBranchCurrentId = nodeId;
     }
 
-    const summary = await summarizeWithGemini(prompt, response, settings.geminiApiKey);
+    const useGemini = (settings.summaryMode ?? "local") === "gemini" && !!settings.geminiApiKey;
+    const summary = await summarizeWithGemini(prompt, response, useGemini ? settings.geminiApiKey : "");
 
     const node: ConversationNode = {
       id: nodeId, conversationId,

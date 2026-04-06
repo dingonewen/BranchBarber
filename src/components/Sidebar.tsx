@@ -14,6 +14,10 @@ const MAX_W = 700;
 const DEFAULT_W = 340;
 const NODE_W = 240;
 
+function safeGetURL(path: string): string {
+  try { return chrome.runtime.getURL(path); } catch { return ""; }
+}
+
 export function Sidebar() {
   const [open, setOpen]   = useState(true);
   const [tab, setTab]     = useState<"tree" | "settings">("tree");
@@ -158,7 +162,7 @@ export function Sidebar() {
           borderBottom: `1px solid ${C.surface0}`,
           flexShrink: 0,
         }}>
-          <img src={chrome.runtime.getURL("icons/icon48.png")} style={{ width: 20, height: 20, objectFit: "contain" }} />
+          <img src={safeGetURL("icons/icon48.png")} style={{ width: 20, height: 20, objectFit: "contain" }} />
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontWeight: 700, fontSize: 13, color: C.text, letterSpacing: "-0.01em" }}>

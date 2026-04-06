@@ -1,8 +1,9 @@
 import { useBranchStore } from "../store";
-import { db, upsertNode } from "../db";
+import { db, upsertNode, getOrCreateSettings } from "../db";
 import type { ConversationNode } from "../db";
 import { generateId } from "../utils";
 import { C, branchColor } from "./theme";
+import { inferGhostTopic } from "../utils/gemini";
 
 const NODE_W = 240;
 const NODE_H = 130;
@@ -68,6 +69,17 @@ export function NodeDetail() {
     };
     await upsertNode(ghostData);
     addNode(ghostData);
+
+    // Async: fill ghost label with Gemini prediction (fire-and-forget)
+    getOrCreateSettings().then((settings) => {
+      if ((settings.summaryMode ?? "local") !== "gemini" || !settings.geminiApiKey || !node.parentId) return;
+      const ctx = `${parent.prompt} ${parent.response}`;
+      inferGhostTopic(ctx, settings.geminiApiKey).then((label) => {
+        if (!label) return;
+        db.nodes.update(ghostId, { label, summary: label });
+        useBranchStore.getState().updateNodeLabel(ghostId, label);
+      });
+    });
 
     // Shift this node + subtree from current position to branchPos
     const dx = branchPos.x - node.position.x;

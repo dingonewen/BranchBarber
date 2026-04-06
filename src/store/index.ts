@@ -34,6 +34,7 @@ interface BranchBarberState {
   geminiApiKey: string;
   driftThreshold: number;
   autoDetectBranches: boolean;
+  summaryMode: "gemini" | "local";
   // Bumped by snap/unbranch to force ReactFlow to re-read positions from store
   layoutKey: number;
   undoStack: Array<Record<string, TreeNode>>;
@@ -59,7 +60,7 @@ interface BranchBarberState {
   setSidebarTab: (tab: "tree" | "settings") => void;
   setProcessing: (v: boolean) => void;
   setDriftAlert: (alert: { nodeId: string; score: number } | null) => void;
-  setSettings: (s: Partial<{ geminiApiKey: string; driftThreshold: number; autoDetectBranches: boolean }>) => void;
+  setSettings: (s: Partial<{ geminiApiKey: string; driftThreshold: number; autoDetectBranches: boolean; summaryMode: "gemini" | "local" }>) => void;
   loadNodes: (nodes: ConversationNode[]) => void;
 }
 
@@ -105,7 +106,7 @@ export const useBranchStore = create<BranchBarberState>((set, get) => ({
   nodes: {}, rootNodeId: null, currentNodeId: null,
   selectedNodeId: null, sidebarVisible: true, sidebarTab: "tree",
   isProcessing: false, driftAlert: null,
-  geminiApiKey: "", driftThreshold: 0.6, autoDetectBranches: true,
+  geminiApiKey: "", driftThreshold: 0.6, autoDetectBranches: true, summaryMode: "local" as const,
   layoutKey: 0,
   undoStack: [],
 
@@ -221,6 +222,7 @@ export const useBranchStore = create<BranchBarberState>((set, get) => ({
       geminiApiKey: s.geminiApiKey ?? state.geminiApiKey,
       driftThreshold: s.driftThreshold ?? state.driftThreshold,
       autoDetectBranches: s.autoDetectBranches ?? state.autoDetectBranches,
+      summaryMode: s.summaryMode ?? state.summaryMode,
     })),
 
   loadNodes: (dbNodes) => {

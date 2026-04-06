@@ -18,6 +18,10 @@ import { TreeNodeComponent } from "./TreeNode";
 import { C, branchColor } from "./theme";
 import { db } from "../db";
 
+function safeGetURL(path: string): string {
+  try { return chrome.runtime.getURL(path); } catch { return ""; }
+}
+
 const NODE_TYPES = { treeNode: TreeNodeComponent };
 const SNAP_DIST  = 90;   // px — magnetic snap radius
 const NODE_W     = 240;
@@ -224,7 +228,7 @@ export function ConversationTree() {
         justifyContent: "center", height: "100%", color: C.overlay1,
         fontSize: 11, padding: "0 16px", textAlign: "center", gap: 8,
       }}>
-        <img src={chrome.runtime.getURL("icons/icon128.png")} style={{ width: 48, height: 48, objectFit: "contain", opacity: 0.5 }} />
+        <img src={safeGetURL("icons/icon128.png")} style={{ width: 48, height: 48, objectFit: "contain", opacity: 0.5 }} />
         <p style={{ fontWeight: 600, color: C.subtext0, margin: 0 }}>No conversation yet</p>
         <p style={{ margin: 0 }}>Start chatting and BranchBarber will map your tree.</p>
       </div>

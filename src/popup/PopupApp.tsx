@@ -4,6 +4,10 @@ type Status = "idle" | "active" | "loading";
 
 const SUPPORTED_HOSTS = ["chatgpt.com", "chat.openai.com", "gemini.google.com"];
 
+function safeGetURL(path: string): string {
+  try { return chrome.runtime.getURL(path); } catch { return ""; }
+}
+
 const S = {
   wrap:    { width: 288, background: "#eff1f5", color: "#4c4f69", padding: 16, display: "flex", flexDirection: "column" as const, gap: 12, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
   header:  { display: "flex", alignItems: "center", gap: 10 },
@@ -82,7 +86,7 @@ export function PopupApp() {
   return (
     <div style={S.wrap}>
       <div style={S.header}>
-        <img src={chrome.runtime.getURL("icons/icon48.png")} style={{ width: 28, height: 28, objectFit: "contain" }} />
+        <img src={safeGetURL("icons/icon48.png")} style={{ width: 28, height: 28, objectFit: "contain" }} />
         <div>
           <div style={S.title}>BranchBarber</div>
           <div style={S.sub}>Conversation Tree Extension</div>
