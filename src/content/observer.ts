@@ -197,19 +197,18 @@ async function scanAndProcessTurns(): Promise<void> {
       const parentDbNode = parentNodeId ? await db.nodes.get(parentNodeId) : null;
       if (embedding.length > 0 && parentDbNode?.embedding && parentDbNode.embedding.length > 0) {
         driftScore = 1 - cosineSimilarity(embedding, parentDbNode.embedding);
-        console.log(`[BB] Turn ${i} embedding drift: ${driftScore.toFixed(3)}`);
+
       } else {
         const parentText = parentDbNode ? `${parentDbNode.prompt} ${parentDbNode.response}` : "";
         if (parentText) {
           driftScore = lexicalDrift(textForEmbedding, parentText.slice(0, 512));
-          console.log(`[BB] Turn ${i} lexical drift: ${driftScore.toFixed(3)}`);
+
         }
       }
     }
 
     const threshold   = 1 - settings.driftThreshold;
     const isSideQuest = settings.autoDetectBranches && (keywordShift || driftScore > threshold);
-    console.log(`[BB] Turn ${i}: keyword=${keywordShift} drift=${driftScore.toFixed(3)} thr=${threshold.toFixed(2)} → branch=${isSideQuest}`);
 
     // ── Position + parentId (parent-relative layout) ──────────────────────────
     // The tree is a binary-ish structure:
