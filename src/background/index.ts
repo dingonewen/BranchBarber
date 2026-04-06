@@ -3,26 +3,47 @@
 const OFFSCREEN_URL = chrome.runtime.getURL("offscreen.html");
 
 async function ensureOffscreenDocument(): Promise<void> {
-  const existing = await chrome.runtime.getContexts({
-    contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
-    documentUrls: [OFFSCREEN_URL],
-  });
-  if (existing.length > 0) return;
-  await chrome.offscreen.createDocument({
-    url: OFFSCREEN_URL,
-    reasons: [chrome.offscreen.Reason.WORKERS],
-    justification: "Run Transformers.js embeddings outside host page CSP",
+  try {
+    const existing = await chrome.runtime.getContexts({
+      contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT],
+      documentUrls: [OFFSCREEN_URL],
+    });
+    if (existing.length > 0) return;
+    await chrome.offscreen.createDocument({
+      url: OFFSCREEN_URL,
+      reasons: [chrome.offscreen.Reason.WORKERS],
+      justification: "Run Transformers.js embeddings outside host page CSP",
+    });
+  } catch (e) {
+    // Already creating, or document already exists — safe to ignore
+    console.warn("[BranchBarber] ensureOffscreenDocument:", e);
+  }
+}
+
+function ensureAlarm(): void {
+  chrome.alarms.get("keepAlive", (alarm) => {
+    if (!alarm) {
+      chrome.alarms.create("keepAlive", { periodInMinutes: 0.4 });
+    }
   });
 }
 
+// On install AND on every SW startup (browser restart, SW kill/revive)
 chrome.runtime.onInstalled.addListener(() => {
   console.log("[BranchBarber] Extension installed");
-  chrome.alarms.create("keepAlive", { periodInMinutes: 0.4 });
+  ensureAlarm();
+  ensureOffscreenDocument();
 });
 
+chrome.runtime.onStartup.addListener(() => {
+  ensureAlarm();
+  ensureOffscreenDocument();
+});
+
+// Keepalive tick — also re-ensures offscreen doc is alive
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === "keepAlive") {
-    // Heartbeat — keeps service worker alive
+    ensureOffscreenDocument();
   }
 });
 

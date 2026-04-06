@@ -22,10 +22,12 @@ export function injectSidebar(): void {
 
 function injectStyles(): void {
   if (document.getElementById("bb-styles")) return;
+  let href: string;
+  try { href = chrome.runtime.getURL("content.css"); } catch { return; }
   const link = document.createElement("link");
   link.id = "bb-styles";
   link.rel = "stylesheet";
-  link.href = chrome.runtime.getURL("content.css");
+  link.href = href;
   document.head.appendChild(link);
 }
 

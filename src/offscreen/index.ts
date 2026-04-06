@@ -13,7 +13,7 @@ async function getExtractor() {
       extractor = await pipeline(
         "feature-extraction",
         "Xenova/all-MiniLM-L6-v2",
-        { device: "wasm" }
+        { device: "wasm", dtype: "q8" }
       );
       console.log("[BranchBarber] Embedding model ready");
       return extractor;

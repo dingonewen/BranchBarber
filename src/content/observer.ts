@@ -77,18 +77,27 @@ export function initObserver(): void {
   });
 }
 
+function isContextValid(): boolean {
+  try { return !!chrome.runtime?.id; } catch { return false; }
+}
+
 function requestEmbedding(text: string, id: string): Promise<number[]> {
   return new Promise((resolve) => {
-    const timeoutId = setTimeout(() => resolve([]), 30000);
-    chrome.runtime.sendMessage(
-      { type: "EMBED", id, text },
-      (response: { id: string; embedding: number[]; error?: string }) => {
-        clearTimeout(timeoutId);
-        if (chrome.runtime.lastError || !response || response.error) resolve([]);
-        else resolve(response.embedding ?? []);
-      }
-    );
-    if (chrome.runtime.lastError) { clearTimeout(timeoutId); resolve([]); }
+    if (!isContextValid()) { resolve([]); return; }
+    const timeoutId = setTimeout(() => resolve([]), 60000);
+    try {
+      chrome.runtime.sendMessage(
+        { type: "EMBED", id, text },
+        (response: { id: string; embedding: number[]; error?: string }) => {
+          clearTimeout(timeoutId);
+          if (chrome.runtime.lastError || !response || response.error) resolve([]);
+          else resolve(response.embedding ?? []);
+        }
+      );
+    } catch {
+      clearTimeout(timeoutId);
+      resolve([]);
+    }
   });
 }
 
@@ -152,6 +161,7 @@ function startMutationObserver(): void {
 const handleMutations = (): void => { scanAndProcessTurns(); };
 
 async function scanAndProcessTurns(): Promise<void> {
+  if (!isContextValid()) return;
   const userTurns = getUserTurns(platform);
   const aiTurns   = getAITurns(platform);
   const pairCount = Math.min(userTurns.length, aiTurns.length);

@@ -23,6 +23,7 @@ export function initNavigator(platform: Platform): void {
     }
   });
 
+  try { chrome.runtime?.id; } catch { return; } // context already gone
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "GET_STATUS") {
       sendResponse({ status: "active" });
