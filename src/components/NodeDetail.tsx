@@ -1,12 +1,10 @@
 import { useBranchStore } from "../store";
 import { db } from "../db";
-import { C } from "./theme";
+import { C, branchColor } from "./theme";
 
-const STATUS_COLOR: Record<string, string> = {
-  root: C.mauve, branch: C.blue, "side-quest": C.yellow, ghost: C.overlay1, normal: C.overlay1,
-};
 const STATUS_LABEL: Record<string, string> = {
-  root: "Root Node", branch: "Branch Point", "side-quest": "Side Quest", ghost: "Placeholder", normal: "",
+  root: "Root Node", branch: "Branch Point",
+  "side-quest": "Side Quest", ghost: "Placeholder", normal: "",
 };
 
 export function NodeDetail() {
@@ -14,21 +12,63 @@ export function NodeDetail() {
   const nodes         = useBranchStore((s) => s.nodes);
   const markAsBranch  = useBranchStore((s) => s.markAsBranch);
   const unmarkBranch  = useBranchStore((s) => s.unmarkBranch);
+  const isolateNode   = useBranchStore((s) => s.isolateNode);
+  const removeNode    = useBranchStore((s) => s.removeNode);
+  const shiftSubtree  = useBranchStore((s) => s.shiftSubtree);
+  const bumpLayoutKey = useBranchStore((s) => s.bumpLayoutKey);
   const selectNode    = useBranchStore((s) => s.selectNode);
 
   if (!selectedId) return null;
   const node = nodes[selectedId];
   if (!node) return null;
 
-  const isGhost = node.status === "ghost";
+  const isGhost   = node.status === "ghost";
+  const accent    = isGhost              ? C.overlay1
+                  : node.status === "pending" ? C.peach
+                  : branchColor(node.position.x);
 
-  const btn = (label: string, onClick: () => void, accent?: string) => (
+  // ── Unbranch: snap back to ghost left-child slot ─────────────────────────
+  const handleUnbranch = () => {
+    const ghost = Object.values(nodes).find(
+      (n) => n.parentId === node.parentId && n.status === "ghost"
+    );
+    if (ghost) {
+      const dx = ghost.position.x - node.position.x;
+      const dy = ghost.position.y - node.position.y;
+      shiftSubtree(selectedId, dx, dy);
+      removeNode(ghost.id);
+      db.nodes.delete(ghost.id);
+      const updateDb = (id: string) => {
+        const n = useBranchStore.getState().nodes[id];
+        if (n) { db.nodes.update(id, { position: n.position }); n.children.forEach(updateDb); }
+      };
+      updateDb(selectedId);
+    }
+    unmarkBranch(selectedId);
+    db.nodes.update(selectedId, { isBranch: false, isSideQuest: false });
+    bumpLayoutKey();
+  };
+
+  // ── Detach: remove node from chain, reconnect children to grandparent ────
+  const handleDetach = () => {
+    // Update children's parentId in DB to grandparent
+    const grandparentId = node.parentId;
+    for (const childId of node.children) {
+      db.nodes.update(childId, { parentId: grandparentId });
+    }
+    db.nodes.update(selectedId, { parentId: null });
+    isolateNode(selectedId);
+    selectNode(null);
+    bumpLayoutKey();
+  };
+
+  const btn = (label: string, onClick: () => void, color?: string) => (
     <button key={label} onClick={onClick} style={{
       flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer",
       fontSize: 11, fontWeight: 600,
-      background: accent ?? C.base,
-      color: accent ? "#fff" : C.subtext1,
-      border: accent ? "none" : `1px solid ${C.surface1}`,
+      background: color ?? C.base,
+      color: color ? "#fff" : C.subtext1,
+      border: color ? "none" : `1px solid ${C.surface1}`,
     }}>
       {label}
     </button>
@@ -36,11 +76,12 @@ export function NodeDetail() {
 
   return (
     <div style={{
-      background: C.mantle, border: `1px solid ${C.surface0}`,
+      background: C.mantle,
+      border: `1px solid ${C.surface0}`,
       borderRadius: 10, padding: "10px 12px", fontSize: 11, color: C.text,
     }}>
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-        <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: STATUS_COLOR[node.status] }}>
+        <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em", color: accent }}>
           {STATUS_LABEL[node.status] || `Turn ${node.domIndex + 1}`}
         </span>
         <button onClick={() => selectNode(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.overlay1, fontSize: 12, padding: 0 }}>✕</button>
@@ -73,12 +114,18 @@ export function NodeDetail() {
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 6 }}>
-        {!isGhost && btn("👁 View",  () => window.postMessage({ type: "BRANCHBARBER_SCROLL_TO", domIndex: node.domIndex }, "*"))}
-        {!isGhost && btn("↩ Reset", () => window.postMessage({ type: "BRANCHBARBER_RESET_TO",  domIndex: node.domIndex }, "*"))}
-        {node.status === "normal"   && btn("✂ Branch", () => { markAsBranch(selectedId); db.nodes.update(selectedId, { isBranch: true }); }, C.mauve)}
-        {node.status === "branch"   && btn("↺ Unbranch", () => { unmarkBranch(selectedId); db.nodes.update(selectedId, { isBranch: false }); }, C.overlay1)}
-        {node.status === "side-quest" && btn("↺ Unbranch", () => { unmarkBranch(selectedId); db.nodes.update(selectedId, { isSideQuest: false }); }, C.overlay1)}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {!isGhost && btn("👁 View", () => window.postMessage({ type: "BRANCHBARBER_SCROLL_TO", domIndex: node.domIndex }, "*"))}
+        {/* Detach: remove from chain, children reconnect to grandparent */}
+        {!isGhost && node.status !== "root" && node.parentId !== null &&
+          btn("⛓ Detach", handleDetach, C.overlay1)}
+        {/* Pending = auto-detected, needs user confirmation */}
+        {node.status === "pending" &&
+          btn("✓ Confirm Branch", () => { markAsBranch(selectedId); db.nodes.update(selectedId, { isBranch: true }); bumpLayoutKey(); }, C.peach)}
+        {node.status === "normal" && node.parentId !== null &&
+          btn("✂ Branch", () => { markAsBranch(selectedId); db.nodes.update(selectedId, { isBranch: true }); bumpLayoutKey(); }, accent)}
+        {(node.status === "side-quest" || node.status === "pending") &&
+          btn("↺ Unbranch", handleUnbranch, C.surface2)}
       </div>
     </div>
   );

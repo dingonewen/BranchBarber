@@ -1,53 +1,70 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "reactflow";
 import type { TreeNode } from "../store";
-import { C } from "./theme";
-
-const STATUS: Record<string, { bg: string; border: string; badge: string; label: string; dashed?: boolean }> = {
-  root:         { bg: "#f0eeff", border: C.mauve,    badge: C.mauve,    label: "Root" },
-  branch:       { bg: "#eef3ff", border: C.blue,     badge: C.blue,     label: "Branch" },
-  "side-quest": { bg: "#fef9ec", border: C.yellow,   badge: C.yellow,   label: "Side Quest" },
-  ghost:        { bg: C.mantle,  border: C.surface1,  badge: "",         label: "",  dashed: true },
-  normal:       { bg: C.base,    border: C.surface1,  badge: "",         label: "" },
-};
+import { C, branchColor, branchBg } from "./theme";
 
 export const TreeNodeComponent = memo(({ data, selected }: NodeProps<TreeNode>) => {
-  const st = STATUS[data.status] ?? STATUS.normal;
-  const isGhost = data.status === "ghost";
+  const isGhost    = data.status === "ghost";
+  const isRoot     = data.status === "root";
+  const isPending  = data.status === "pending";   // auto-detected, not confirmed
+  const isIsolated = data.status === "normal" && data.parentId === null && !isRoot;
+
+  // Pending = orange (peach) regardless of column
+  // Everything else = column-based color
+  const accent = isGhost   ? C.surface1
+               : isPending ? C.peach
+               : isRoot    ? C.mauve
+               :             branchColor(data.position.x);
+
+  const bg = isGhost   ? C.mantle
+           : isPending ? "#fff4ec"    // peach tint
+           :             branchBg(data.position.x);
+
+  const borderColor = selected ? C.mauve : accent;
+  const borderStyle = isGhost ? "1.5px dashed" : isPending ? "2px dashed" : "2px solid";
+
+  const badgeLabel =
+    isRoot     ? "Root"
+    : isPending  ? "Side Quest?"    // question mark = not confirmed
+    : data.status === "side-quest" ? "Side Quest"
+    : data.status === "branch"     ? "Branch"
+    : isIsolated ? "Isolated"
+    : null;
 
   return (
     <div style={{
       position: "relative",
       width: 180,
-      background: st.bg,
-      border: `${isGhost ? "1.5px dashed" : "2px solid"} ${selected ? C.mauve : st.border}`,
+      background: bg,
+      border: `${borderStyle} ${borderColor}`,
       borderRadius: 10,
       padding: "8px 10px",
       fontSize: 11,
       cursor: isGhost ? "default" : "pointer",
       color: isGhost ? C.overlay1 : C.text,
-      opacity: isGhost ? 0.7 : 1,
+      opacity: isGhost ? 0.65 : isIsolated ? 0.55 : 1,
       boxShadow: selected
-        ? `0 0 0 3px ${C.lavender}44, 0 4px 12px rgba(0,0,0,0.1)`
-        : "0 2px 6px rgba(0,0,0,0.08)",
+        ? `0 0 0 3px ${accent}33, 0 4px 12px rgba(0,0,0,0.1)`
+        : "0 2px 6px rgba(0,0,0,0.07)",
       transition: "border-color 0.15s, box-shadow 0.15s",
     }}>
       <Handle type="target" position={Position.Left}
         style={{ background: C.surface2, border: "none", width: 8, height: 8 }} />
 
-      {st.label && (
+      {badgeLabel && (
         <span style={{
           position: "absolute", top: -10, left: 8,
           padding: "1px 6px", borderRadius: 4,
-          background: st.badge, color: "#fff",
+          background: isIsolated ? C.surface2 : accent,
+          color: "#fff",
           fontSize: 9, fontWeight: 700,
           textTransform: "uppercase", letterSpacing: "0.06em",
         }}>
-          {st.label}
+          {badgeLabel}
         </span>
       )}
 
-      {data.status === "side-quest" && (
+      {isPending && (
         <span style={{ position: "absolute", top: -6, right: -6, fontSize: 12 }}>⚠️</span>
       )}
 

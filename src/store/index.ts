@@ -1,7 +1,9 @@
 import { create } from "zustand";
 import type { ConversationNode, ConversationMeta } from "../db";
 
-export type NodeStatus = "root" | "branch" | "side-quest" | "normal" | "ghost";
+// "pending" = auto-detected drift, user hasn't confirmed yet (orange)
+// "side-quest" = user confirmed branch (takes parent column color)
+export type NodeStatus = "root" | "branch" | "side-quest" | "pending" | "normal" | "ghost";
 
 export interface TreeNode {
   id: string;
@@ -32,6 +34,8 @@ interface BranchBarberState {
   geminiApiKey: string;
   driftThreshold: number;
   autoDetectBranches: boolean;
+  // Bumped by snap/unbranch to force ReactFlow to re-read positions from store
+  layoutKey: number;
 
   clearConversation: () => void;
   setConversation: (id: string, meta: ConversationMeta) => void;
@@ -43,6 +47,11 @@ interface BranchBarberState {
   selectNode: (id: string | null) => void;
   markAsBranch: (id: string) => void;
   unmarkBranch: (id: string) => void;
+  isolateNode: (id: string) => void;
+  removeNode: (id: string) => void;
+  reparentNode: (nodeId: string, newParentId: string | null) => void;
+  shiftSubtree: (nodeId: string, dx: number, dy: number) => void;
+  bumpLayoutKey: () => void;
   setSidebarVisible: (v: boolean) => void;
   setSidebarTab: (tab: "tree" | "settings") => void;
   setProcessing: (v: boolean) => void;
@@ -53,23 +62,16 @@ interface BranchBarberState {
 
 function dbNodeToTreeNode(node: ConversationNode): TreeNode {
   let status: NodeStatus = "normal";
-  if (node.isGhost)      status = "ghost";
-  else if (node.isRoot)  status = "root";
-  else if (node.isBranch) status = "branch";
-  else if (node.isSideQuest) status = "side-quest";
+  if (node.isGhost)          status = "ghost";
+  else if (node.isRoot)      status = "root";
+  else if (node.isBranch)    status = "side-quest";   // user confirmed → takes column color
+  else if (node.isSideQuest) status = "pending";      // auto-detected, not yet confirmed (orange)
   return {
-    id: node.id,
-    label: node.label,
-    prompt: node.prompt,
-    response: node.response,
-    summary: node.summary,
-    parentId: node.parentId,
-    children: [],
-    driftScore: node.driftScore,
-    status,
-    domIndex: node.domIndex,
-    depth: node.depth,
-    position: node.position,
+    id: node.id, label: node.label,
+    prompt: node.prompt, response: node.response, summary: node.summary,
+    parentId: node.parentId, children: [],
+    driftScore: node.driftScore, status,
+    domIndex: node.domIndex, depth: node.depth, position: node.position,
   };
 }
 
@@ -83,20 +85,25 @@ function buildChildren(nodes: Record<string, TreeNode>): Record<string, TreeNode
   return result;
 }
 
+// Exported so components can collect subtree IDs without importing store internals
+export function getSubtreeIds(nodes: Record<string, TreeNode>, rootId: string): string[] {
+  const result: string[] = [];
+  const q = [rootId];
+  while (q.length) {
+    const cur = q.shift()!;
+    result.push(cur);
+    for (const c of (nodes[cur]?.children ?? [])) q.push(c);
+  }
+  return result;
+}
+
 export const useBranchStore = create<BranchBarberState>((set) => ({
-  conversationId: null,
-  conversationMeta: null,
-  nodes: {},
-  rootNodeId: null,
-  currentNodeId: null,
-  selectedNodeId: null,
-  sidebarVisible: true,
-  sidebarTab: "tree",
-  isProcessing: false,
-  driftAlert: null,
-  geminiApiKey: "",
-  driftThreshold: 0.6,
-  autoDetectBranches: true,
+  conversationId: null, conversationMeta: null,
+  nodes: {}, rootNodeId: null, currentNodeId: null,
+  selectedNodeId: null, sidebarVisible: true, sidebarTab: "tree",
+  isProcessing: false, driftAlert: null,
+  geminiApiKey: "", driftThreshold: 0.6, autoDetectBranches: true,
+  layoutKey: 0,
 
   clearConversation: () =>
     set({ nodes: {}, rootNodeId: null, currentNodeId: null, selectedNodeId: null, driftAlert: null }),
@@ -109,36 +116,80 @@ export const useBranchStore = create<BranchBarberState>((set) => ({
       const updated = { ...state.nodes, [treeNode.id]: treeNode };
       const withChildren = buildChildren(updated);
       const rootNodeId = dbNode.isRoot ? dbNode.id : state.rootNodeId;
-      // Don't advance currentNodeId for ghost nodes
       const currentNodeId = dbNode.isGhost ? state.currentNodeId : dbNode.id;
       return { nodes: withChildren, rootNodeId, currentNodeId };
     });
   },
 
   updateNodeLabel: (id, label) =>
-    set((state) => ({
-      nodes: { ...state.nodes, [id]: { ...state.nodes[id], label } },
-    })),
+    set((state) => ({ nodes: { ...state.nodes, [id]: { ...state.nodes[id], label } } })),
 
   updateNodeSummary: (id, summary) =>
-    set((state) => ({
-      nodes: { ...state.nodes, [id]: { ...state.nodes[id], summary } },
-    })),
+    set((state) => ({ nodes: { ...state.nodes, [id]: { ...state.nodes[id], summary } } })),
 
   updateNodeEmbedding: (_id, _embedding) => { /* embeddings in DB only */ },
 
   setCurrentNode: (id) => set({ currentNodeId: id }),
   selectNode: (id) => set({ selectedNodeId: id }),
 
+  // User confirms a branch/side-quest → "side-quest" = uses column color
   markAsBranch: (id) =>
-    set((state) => ({
-      nodes: { ...state.nodes, [id]: { ...state.nodes[id], status: "branch" } },
-    })),
+    set((state) => ({ nodes: { ...state.nodes, [id]: { ...state.nodes[id], status: "side-quest" } } })),
 
   unmarkBranch: (id) =>
-    set((state) => ({
-      nodes: { ...state.nodes, [id]: { ...state.nodes[id], status: "normal" } },
-    })),
+    set((state) => ({ nodes: { ...state.nodes, [id]: { ...state.nodes[id], status: "normal" } } })),
+
+  // Remove node from parent-child chain: reparent its children to its grandparent,
+  // then sever the node's own parentId (it floats alone).
+  isolateNode: (id) =>
+    set((state) => {
+      const node = state.nodes[id];
+      if (!node) return {};
+      const grandparentId = node.parentId;
+      const updated = { ...state.nodes };
+      // Reparent all direct children to grandparent
+      for (const childId of node.children) {
+        if (updated[childId]) {
+          updated[childId] = { ...updated[childId], parentId: grandparentId };
+        }
+      }
+      // Sever the node itself
+      updated[id] = { ...node, parentId: null, status: "normal" };
+      return { nodes: buildChildren(updated) };
+    }),
+
+  removeNode: (id) =>
+    set((state) => {
+      const { [id]: _removed, ...rest } = state.nodes;
+      return { nodes: buildChildren(rest) };
+    }),
+
+  reparentNode: (nodeId, newParentId) =>
+    set((state) => {
+      if (!state.nodes[nodeId]) return {};
+      const nodes = {
+        ...state.nodes,
+        [nodeId]: { ...state.nodes[nodeId], parentId: newParentId },
+      };
+      return { nodes: buildChildren(nodes) };
+    }),
+
+  shiftSubtree: (nodeId, dx, dy) =>
+    set((state) => {
+      const toShift = getSubtreeIds(state.nodes, nodeId);
+      const nodes = { ...state.nodes };
+      for (const id of toShift) {
+        if (nodes[id]) {
+          nodes[id] = {
+            ...nodes[id],
+            position: { x: nodes[id].position.x + dx, y: nodes[id].position.y + dy },
+          };
+        }
+      }
+      return { nodes };
+    }),
+
+  bumpLayoutKey: () => set((state) => ({ layoutKey: state.layoutKey + 1 })),
 
   setSidebarVisible: (v) => set({ sidebarVisible: v }),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),

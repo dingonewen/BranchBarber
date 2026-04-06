@@ -26,54 +26,46 @@ let conversationId: string = "";
 let mutationObserver: MutationObserver | null = null;
 let processedCount = 0;
 
-// ── Layout state ─────────────────────────────────────────────────────────────
-// Column 0 = main branch (left). Side quests get column 1, 2, …
+// ── Layout tracking ───────────────────────────────────────────────────────────
+// Positions are parent-relative: each node is placed directly below its parent
+// (left child, same x) or to the right (side-quest/right child, x + NODE_W).
 const NODE_W = 240;
 const NODE_H = 130;
 
-let mainBranchCurrentId: string | null = null; // tip of main thread (may be a ghost)
+// Current tip of each branch — used to parent new nodes correctly
+let mainBranchCurrentId: string | null = null;
 let sideQuestCurrentId:  string | null = null;
 let inSideQuest = false;
-let mainBranchRow = 0;  // next available row on main branch
-let sideQuestRow  = 0;
-let sideQuestCol  = 1;
 
 function resetLayout(): void {
   mainBranchCurrentId = null;
   sideQuestCurrentId  = null;
   inSideQuest         = false;
-  mainBranchRow       = 0;
-  sideQuestRow        = 0;
-  sideQuestCol        = 1;
 }
 
 function rebuildLayoutFromNodes(nodes: ConversationNode[]): void {
   resetLayout();
+  // Sorted by domIndex; ghost nodes have domIndex=-1 so they come first
   const sorted = [...nodes].sort((a, b) => a.domIndex - b.domIndex);
   for (const n of sorted) {
-    if (n.isGhost) {
+    if (n.isRoot) {
       mainBranchCurrentId = n.id;
-      // don't advance mainBranchRow — ghost was placed at current row
-    } else if (n.isRoot) {
-      mainBranchCurrentId = n.id;
-      mainBranchRow = 1;
+    } else if (n.isGhost) {
+      mainBranchCurrentId = n.id; // ghost is the left-child placeholder
     } else if (n.isSideQuest) {
-      if (!inSideQuest) {
-        inSideQuest  = true;
-        sideQuestRow = mainBranchRow + 1;
-      }
+      if (!inSideQuest) inSideQuest = true;
       sideQuestCurrentId = n.id;
-      sideQuestRow++;
     } else {
-      if (inSideQuest) {
-        inSideQuest        = false;
-        sideQuestCurrentId = null;
-        sideQuestCol++;
-      }
+      if (inSideQuest) { inSideQuest = false; sideQuestCurrentId = null; }
       mainBranchCurrentId = n.id;
-      mainBranchRow++;
     }
   }
+}
+
+// Get a node's position from the store, with a safe fallback
+function parentPos(nodeId: string | null): { x: number; y: number } {
+  if (!nodeId) return { x: 0, y: -NODE_H };
+  return useBranchStore.getState().nodes[nodeId]?.position ?? { x: 0, y: -NODE_H };
 }
 
 export function initObserver(): void {
@@ -120,14 +112,12 @@ async function initConversation(): Promise<void> {
     useBranchStore.getState().setConversation(conversationId, existing);
     const nodes = await getConversationNodes(conversationId);
     useBranchStore.getState().loadNodes(nodes);
-    // processedCount = only real (non-ghost) turns
     processedCount = nodes.filter((n) => !n.isGhost).length;
     rebuildLayoutFromNodes(nodes);
   } else {
     conversationId = generateId();
     const meta: ConversationMeta = {
-      id: conversationId, url,
-      title: getConversationTitle(),
+      id: conversationId, url, title: getConversationTitle(),
       rootNodeId: null, currentNodeId: null,
       createdAt: Date.now(), updatedAt: Date.now(),
     };
@@ -178,15 +168,14 @@ async function scanAndProcessTurns(): Promise<void> {
     const nodeId = generateId();
     const isRoot = i === 0 && store.rootNodeId === null;
 
-    // ── Layer 1: keyword drift ────────────────────────────────────────────────
+    // ── Drift detection ───────────────────────────────────────────────────────
     const SHIFT_KEYWORDS = [
-      '另外', '换个话题', '换个问题', '对了', '顺便问', '顺便说',
-      'by the way', 'btw', 'anyway', 'separate question', 'separate issue',
-      'different topic', 'change of topic', 'unrelated',
+      '另外','换个话题','换个问题','对了','顺便问','顺便说',
+      'by the way','btw','anyway','separate question','separate issue',
+      'different topic','change of topic','unrelated',
     ];
     const keywordShift = SHIFT_KEYWORDS.some((k) => prompt.toLowerCase().includes(k));
 
-    // ── Layer 2: parent-relative similarity ───────────────────────────────────
     let driftScore = 0;
     let embedding: number[] = [];
     const textForEmbedding = `${prompt} ${response}`.slice(0, 512);
@@ -211,7 +200,12 @@ async function scanAndProcessTurns(): Promise<void> {
     const isSideQuest = settings.autoDetectBranches && (keywordShift || driftScore > threshold);
     console.log(`[BB] Turn ${i}: keyword=${keywordShift} drift=${driftScore.toFixed(3)} thr=${threshold.toFixed(2)} → branch=${isSideQuest}`);
 
-    // ── Layout + parentId ─────────────────────────────────────────────────────
+    // ── Position + parentId (parent-relative layout) ──────────────────────────
+    // The tree is a binary-ish structure:
+    //   Left child  (no drift)  = (parentX,         parentY + NODE_H)
+    //   Right child (drift)     = (parentX + NODE_W, parentY + NODE_H)
+    // When drift is detected, a ghost left-child placeholder is also created.
+
     let parentId: string | null;
     let position: { x: number; y: number };
     let depth: number;
@@ -221,78 +215,67 @@ async function scanAndProcessTurns(): Promise<void> {
       position            = { x: 0, y: 0 };
       depth               = 0;
       mainBranchCurrentId = nodeId;
-      mainBranchRow       = 1;
       inSideQuest         = false;
 
     } else if (isSideQuest && !inSideQuest) {
-      // ── First node of a new side quest ───────────────────────────────────
-      // Both the ghost node AND the side quest node are siblings, children of
-      // the current main-branch tip.
-      const branchParent = mainBranchCurrentId;
-      const ghostRow     = mainBranchRow;
+      // ── Branch begins ─────────────────────────────────────────────────────
+      // Branch from the current main-branch tip
+      const branchFromId  = mainBranchCurrentId;
+      const bp            = parentPos(branchFromId);
 
-      // Create ghost node (synthetic placeholder on main branch)
+      // Left-child ghost (placeholder for main continuation)
       const ghostId    = generateId();
       const ghostLabel = "Continue main thread here";
       const ghostNode: ConversationNode = {
         id: ghostId, conversationId,
-        parentId: branchParent,
-        prompt: "", response: "",
-        summary: ghostLabel, label: ghostLabel,
+        parentId: branchFromId,
+        prompt: "", response: "", summary: ghostLabel, label: ghostLabel,
         embedding: null, driftScore: 0,
         isBranch: false, isRoot: false, isSideQuest: false, isGhost: true,
-        domIndex: -1,
-        createdAt: Date.now(),
-        depth: ghostRow,
-        position: { x: 0, y: ghostRow * NODE_H },
+        domIndex: -1, createdAt: Date.now(),
+        depth: Math.round(bp.y / NODE_H) + 1,
+        position: { x: bp.x, y: bp.y + NODE_H },      // left child
       };
       await upsertNode(ghostNode);
       store.addNode(ghostNode);
 
-      // Async: fill ghost label with Gemini prediction (non-blocking)
-      if (settings.geminiApiKey) {
-        const context = branchParent
-          ? await db.nodes.get(branchParent).then((n) => n ? `${n.prompt} ${n.response}` : "")
-          : "";
-        inferGhostTopic(context, settings.geminiApiKey).then((label) => {
-          db.nodes.update(ghostId, { label, summary: label });
-          useBranchStore.getState().updateNodeLabel(ghostId, label);
+      // Async: fill ghost label with Gemini prediction
+      if (settings.geminiApiKey && branchFromId) {
+        db.nodes.get(branchFromId).then((n) => {
+          const ctx = n ? `${n.prompt} ${n.response}` : "";
+          inferGhostTopic(ctx, settings.geminiApiKey).then((label) => {
+            db.nodes.update(ghostId, { label, summary: label });
+            useBranchStore.getState().updateNodeLabel(ghostId, label);
+          });
         });
       }
 
-      // Now the main branch pointer advances to the ghost
+      // Main branch pointer advances to ghost so future normal nodes hang off it
       mainBranchCurrentId = ghostId;
-      mainBranchRow       = ghostRow + 1; // ghost occupies this row
 
-      // Side quest node branches from the same parent as the ghost
+      // Right child = side quest node
+      parentId           = branchFromId;             // same parent as ghost
+      position           = { x: bp.x + NODE_W, y: bp.y + NODE_H };  // right child
+      depth              = Math.round(bp.y / NODE_H) + 1;
       inSideQuest        = true;
-      sideQuestRow       = ghostRow;      // same y-row as ghost
-      parentId           = branchParent;
-      position           = { x: sideQuestCol * NODE_W, y: sideQuestRow * NODE_H };
-      depth              = ghostRow;
       sideQuestCurrentId = nodeId;
-      sideQuestRow++;
 
     } else if (isSideQuest && inSideQuest) {
-      // Continuing down the current side quest
-      parentId           = sideQuestCurrentId;
-      position           = { x: sideQuestCol * NODE_W, y: sideQuestRow * NODE_H };
-      depth              = sideQuestRow;
+      // ── Continue down the side quest ──────────────────────────────────────
+      const sqp    = parentPos(sideQuestCurrentId);
+      parentId     = sideQuestCurrentId;
+      position     = { x: sqp.x, y: sqp.y + NODE_H };  // left child of side-quest tip
+      depth        = Math.round(sqp.y / NODE_H) + 1;
       sideQuestCurrentId = nodeId;
-      sideQuestRow++;
 
     } else {
-      // Main branch (returning from side quest or normal continuation)
-      if (inSideQuest) {
-        inSideQuest        = false;
-        sideQuestCurrentId = null;
-        sideQuestCol++;
-      }
-      parentId            = mainBranchCurrentId;
-      position            = { x: 0, y: mainBranchRow * NODE_H };
-      depth               = mainBranchRow;
+      // ── Normal main-branch continuation ───────────────────────────────────
+      if (inSideQuest) { inSideQuest = false; sideQuestCurrentId = null; }
+      const mp    = parentPos(mainBranchCurrentId);
+      parentId    = mainBranchCurrentId;
+      position    = { x: mp.x, y: mp.y + NODE_H };   // left child of main tip
+      depth       = Math.round(mp.y / NODE_H) + 1;
       mainBranchCurrentId = nodeId;
-      mainBranchRow++;
     }
 
     const summary = await summarizeWithGemini(prompt, response, settings.geminiApiKey);
@@ -315,7 +298,6 @@ async function scanAndProcessTurns(): Promise<void> {
     });
 
     store.addNode(node);
-
     if (isSideQuest) store.setDriftAlert({ nodeId, score: driftScore });
 
     injectBranchButton(aiTurns[i], nodeId);
@@ -325,7 +307,6 @@ async function scanAndProcessTurns(): Promise<void> {
 
 function injectBranchButton(aiElement: Element, nodeId: string): void {
   if (aiElement.querySelector("[data-branchbarber-btn]")) return;
-
   const btn = document.createElement("button");
   btn.dataset.branchbarberBtn = nodeId;
   btn.style.cssText = `
@@ -344,7 +325,6 @@ function injectBranchButton(aiElement: Element, nodeId: string): void {
     btn.style.borderColor = "rgba(22,163,74,0.4)";
     btn.style.background = "rgba(22,163,74,0.08)";
   });
-
   const bar = document.createElement("div");
   bar.style.cssText = "display:flex;padding:4px 0;margin-top:2px;";
   bar.appendChild(btn);

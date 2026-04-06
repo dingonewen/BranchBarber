@@ -10,12 +10,16 @@ import ReactFlow, {
   MarkerType,
 } from "reactflow";
 import "reactflow/dist/style.css";
-import { useBranchStore } from "../store";
-import { TreeNodeComponent } from "./TreeNode";
+import { useBranchStore, getSubtreeIds } from "../store";
 import type { TreeNode } from "../store";
-import { C } from "./theme";
+import { TreeNodeComponent } from "./TreeNode";
+import { C, branchColor } from "./theme";
+import { db } from "../db";
 
 const NODE_TYPES = { treeNode: TreeNodeComponent };
+const SNAP_DIST  = 90;   // px — magnetic snap radius
+const NODE_W     = 240;
+const NODE_H     = 130;
 
 function buildFlowElements(
   storeNodes: Record<string, TreeNode>,
@@ -24,31 +28,25 @@ function buildFlowElements(
   const nodes: Node<TreeNode>[] = [];
   const edges: Edge[] = [];
 
-  for (const [id, treeNode] of Object.entries(storeNodes)) {
-    nodes.push({
-      id,
-      type: "treeNode",
-      position: treeNode.position,
-      data: treeNode,
-      selected: id === selectedId,
-    });
+  for (const [id, n] of Object.entries(storeNodes)) {
+    nodes.push({ id, type: "treeNode", position: n.position, data: n, selected: id === selectedId });
 
-    if (treeNode.parentId) {
+    if (n.parentId) {
+      const edgeColor = n.status === "ghost"    ? C.surface1
+                      : n.status === "pending"  ? C.peach
+                      : branchColor(n.position.x);
       edges.push({
-        id: `e-${treeNode.parentId}-${id}`,
-        source: treeNode.parentId,
+        id: `e-${n.parentId}-${id}`,
+        source: n.parentId,
         target: id,
         type: "smoothstep",
-        animated: treeNode.status === "side-quest",
-        markerEnd: { type: MarkerType.ArrowClosed, color: C.surface2 },
+        animated: n.status === "side-quest",
+        markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor },
         style: {
-          stroke:
-            treeNode.status === "branch"     ? C.blue :
-            treeNode.status === "side-quest" ? C.yellow :
-            treeNode.status === "ghost"      ? C.surface1 :
-            C.surface2,
+          stroke: edgeColor,
           strokeWidth: 1.5,
-          strokeDasharray: treeNode.status === "ghost" ? "4 3" : undefined,
+          strokeDasharray: n.status === "ghost" ? "4 3" : undefined,
+          opacity: n.status === "ghost" ? 0.5 : 1,
         },
       });
     }
@@ -56,40 +54,110 @@ function buildFlowElements(
   return { nodes, edges };
 }
 
+function isDescendantOf(nodes: Record<string, TreeNode>, nodeId: string, ancestorId: string): boolean {
+  let n = nodes[nodeId];
+  while (n?.parentId) {
+    if (n.parentId === ancestorId) return true;
+    n = nodes[n.parentId];
+  }
+  return false;
+}
+
 export function ConversationTree() {
-  const storeNodes = useBranchStore((s) => s.nodes);
-  const selectedId = useBranchStore((s) => s.selectedNodeId);
-  const selectNode = useBranchStore((s) => s.selectNode);
+  const storeNodes   = useBranchStore((s) => s.nodes);
+  const selectedId   = useBranchStore((s) => s.selectedNodeId);
+  const layoutKey    = useBranchStore((s) => s.layoutKey);
+  const selectNode   = useBranchStore((s) => s.selectNode);
+  const shiftSubtree = useBranchStore((s) => s.shiftSubtree);
+  const reparentNode = useBranchStore((s) => s.reparentNode);
+  const bumpLayoutKey = useBranchStore((s) => s.bumpLayoutKey);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
-  // Track node IDs to detect structural changes (add/remove) vs drag-only moves
-  const prevNodeIdsRef = useRef<string>("");
+  const prevStructureRef = useRef("");
 
   useEffect(() => {
-    const currentIds = Object.keys(storeNodes).sort().join(",");
-    const idsChanged = currentIds !== prevNodeIdsRef.current;
-    prevNodeIdsRef.current = currentIds;
+    // Rebuild when: node IDs change, parentIds change (reparent), OR layoutKey bumped
+    // Include status + posX so any color/layout change triggers rebuild immediately
+    const structure = Object.values(storeNodes)
+      .map((n) => `${n.id}:${n.parentId ?? ""}:${n.status}:${n.position.x}`)
+      .sort()
+      .join("|") + `@${layoutKey}`;
 
-    if (idsChanged) {
-      // Structural change — rebuild everything including positions
+    if (structure !== prevStructureRef.current) {
+      prevStructureRef.current = structure;
       const { nodes: n, edges: e } = buildFlowElements(storeNodes, selectedId);
       setNodes(n);
       setEdges(e);
     } else {
-      // Only selection changed — update selected flag without touching positions
-      setNodes((prev) =>
-        prev.map((n) => ({ ...n, selected: n.id === selectedId }))
-      );
+      // Only selection changed — don't overwrite drag positions
+      setNodes((prev) => prev.map((n) => ({ ...n, selected: n.id === selectedId })));
     }
-  }, [storeNodes, selectedId, setNodes, setEdges]);
+  }, [storeNodes, selectedId, layoutKey, setNodes, setEdges]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node<TreeNode>) => {
       if (node.data.status !== "ghost") selectNode(node.id);
     },
     [selectNode]
+  );
+
+  // ── Magnetic snap ────────────────────────────────────────────────────────
+  const onNodeDragStop = useCallback(
+    (_: React.MouseEvent, draggedNode: Node<TreeNode>) => {
+      // Don't snap ghost nodes
+      if (draggedNode.data.status === "ghost") return;
+
+      const dragPos = draggedNode.position;
+      let nearest: Node<TreeNode> | null = null;
+      let nearestDist = Infinity;
+
+      for (const n of nodes) {
+        if (n.id === draggedNode.id) continue;
+        if (isDescendantOf(storeNodes, n.id, draggedNode.id)) continue;
+        const dx = n.position.x - dragPos.x;
+        const dy = n.position.y - dragPos.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < SNAP_DIST && dist < nearestDist) {
+          nearest = n;
+          nearestDist = dist;
+        }
+      }
+
+      if (!nearest) return;
+
+      // Place as next child of nearest, below and to the right of existing children
+      const existingChildren = Object.values(storeNodes).filter(
+        (n) => n.parentId === nearest!.id && n.id !== draggedNode.id
+      );
+      const maxChildX = existingChildren.length
+        ? Math.max(...existingChildren.map((c) => c.position.x))
+        : nearest.position.x - NODE_W;
+      const snapPos = { x: maxChildX + NODE_W, y: nearest.position.y + NODE_H };
+
+      // Calculate delta from original STORED position (not current drag position)
+      const origPos = storeNodes[draggedNode.id]?.position ?? dragPos;
+      const dx = snapPos.x - origPos.x;
+      const dy = snapPos.y - origPos.y;
+
+      // Collect subtree IDs before store updates
+      const subtreeIds = getSubtreeIds(storeNodes, draggedNode.id);
+
+      // Update store: shift positions + reparent
+      shiftSubtree(draggedNode.id, dx, dy);
+      reparentNode(draggedNode.id, nearest.id);
+      bumpLayoutKey();
+
+      // Update DB asynchronously
+      db.nodes.update(draggedNode.id, { parentId: nearest.id, position: snapPos });
+      for (const id of subtreeIds) {
+        if (id === draggedNode.id) continue;
+        const n = storeNodes[id];
+        if (n) db.nodes.update(id, { position: { x: n.position.x + dx, y: n.position.y + dy } });
+      }
+    },
+    [nodes, storeNodes, shiftSubtree, reparentNode, bumpLayoutKey]
   );
 
   if (Object.keys(storeNodes).length === 0) {
@@ -114,6 +182,7 @@ export function ConversationTree() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
+        onNodeDragStop={onNodeDragStop}
         nodeTypes={NODE_TYPES}
         fitView
         fitViewOptions={{ padding: 0.3 }}
