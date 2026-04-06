@@ -4,13 +4,11 @@ import { saveSettings, getOrCreateSettings } from "../db";
 import { C } from "./theme";
 
 export function SettingsPanel() {
-  const { geminiApiKey, driftThreshold, autoDetectBranches, setSettings } =
-    useBranchStore((s) => ({
-      geminiApiKey: s.geminiApiKey,
-      driftThreshold: s.driftThreshold,
-      autoDetectBranches: s.autoDetectBranches,
-      setSettings: s.setSettings,
-    }));
+  // Use separate selectors — inline object selector causes #185 (new object every render)
+  const geminiApiKey      = useBranchStore((s) => s.geminiApiKey);
+  const driftThreshold    = useBranchStore((s) => s.driftThreshold);
+  const autoDetectBranches = useBranchStore((s) => s.autoDetectBranches);
+  const setSettings       = useBranchStore((s) => s.setSettings);
 
   const [apiKey, setApiKey]         = useState(geminiApiKey);
   const [threshold, setThreshold]   = useState(driftThreshold);
@@ -45,6 +43,7 @@ export function SettingsPanel() {
     border: `1px solid ${C.surface1}`,
     borderRadius: 6, padding: "6px 10px",
     fontSize: 11, color: C.text, outline: "none",
+    boxSizing: "border-box",
   };
 
   return (
@@ -82,7 +81,7 @@ export function SettingsPanel() {
 
         <div
           style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, cursor: "pointer" }}
-          onClick={() => setAutoDetect((v) => !v)}
+          onMouseDown={(e) => { e.stopPropagation(); setAutoDetect((v) => !v); }}
         >
           <div style={{
             width: 32, height: 18, borderRadius: 9, position: "relative",
@@ -112,7 +111,7 @@ export function SettingsPanel() {
       </div>
 
       <button
-        onClick={handleSave}
+        onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); handleSave(); }}
         style={{
           padding: "8px 0", borderRadius: 8, border: "none", cursor: "pointer",
           fontWeight: 700, fontSize: 12,

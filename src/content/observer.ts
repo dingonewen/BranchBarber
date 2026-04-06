@@ -19,27 +19,24 @@ import {
 } from "../db";
 import type { ConversationNode, ConversationMeta } from "../db";
 import { useBranchStore } from "../store";
-import { summarizeWithGemini } from "../utils/gemini";
+import { summarizeWithGemini, inferGhostTopic } from "../utils/gemini";
 
 let platform: Platform = "unknown";
 let conversationId: string = "";
 let mutationObserver: MutationObserver | null = null;
-
-// Track processed turn count to avoid re-processing
 let processedCount = 0;
 
-// ── Layout tracking ──────────────────────────────────────────────────────────
-// Main branch goes down column 0 (x=0).
-// Side quests branch off to column 1+ (x = col * NODE_W).
+// ── Layout state ─────────────────────────────────────────────────────────────
+// Column 0 = main branch (left). Side quests get column 1, 2, …
 const NODE_W = 240;
 const NODE_H = 130;
 
-let mainBranchCurrentId: string | null = null; // tip of the main thread
-let sideQuestCurrentId: string | null  = null; // tip of current side quest
-let inSideQuest        = false;
-let mainBranchRow      = 0;   // next y index for main branch
-let sideQuestRow       = 0;   // next y index for current side quest
-let sideQuestCol       = 1;   // x column for next/current side quest
+let mainBranchCurrentId: string | null = null; // tip of main thread (may be a ghost)
+let sideQuestCurrentId:  string | null = null;
+let inSideQuest = false;
+let mainBranchRow = 0;  // next available row on main branch
+let sideQuestRow  = 0;
+let sideQuestCol  = 1;
 
 function resetLayout(): void {
   mainBranchCurrentId = null;
@@ -50,17 +47,20 @@ function resetLayout(): void {
   sideQuestCol        = 1;
 }
 
-function rebuildLayoutFromNodes(nodes: import("../db").ConversationNode[]): void {
+function rebuildLayoutFromNodes(nodes: ConversationNode[]): void {
   resetLayout();
   const sorted = [...nodes].sort((a, b) => a.domIndex - b.domIndex);
   for (const n of sorted) {
-    if (n.isRoot) {
+    if (n.isGhost) {
+      mainBranchCurrentId = n.id;
+      // don't advance mainBranchRow — ghost was placed at current row
+    } else if (n.isRoot) {
       mainBranchCurrentId = n.id;
       mainBranchRow = 1;
     } else if (n.isSideQuest) {
       if (!inSideQuest) {
         inSideQuest  = true;
-        sideQuestRow = mainBranchRow;
+        sideQuestRow = mainBranchRow + 1;
       }
       sideQuestCurrentId = n.id;
       sideQuestRow++;
@@ -79,46 +79,29 @@ function rebuildLayoutFromNodes(nodes: import("../db").ConversationNode[]): void
 export function initObserver(): void {
   platform = detectPlatform();
   if (platform === "unknown") return;
-
-  // Wait for conversation init, then do an immediate scan for already-loaded
-  // turns (important for Gemini where DOM is stable at injection time)
   initConversation().then(() => {
     scanAndProcessTurns();
     startMutationObserver();
   });
 }
 
-// Route embedding requests through background → offscreen document.
-// This avoids host-page CSP restrictions entirely.
 function requestEmbedding(text: string, id: string): Promise<number[]> {
   return new Promise((resolve) => {
     const timeoutId = setTimeout(() => resolve([]), 30000);
-
     chrome.runtime.sendMessage(
       { type: "EMBED", id, text },
       (response: { id: string; embedding: number[]; error?: string }) => {
         clearTimeout(timeoutId);
-        if (chrome.runtime.lastError || !response || response.error) {
-          resolve([]);
-        } else {
-          resolve(response.embedding ?? []);
-        }
+        if (chrome.runtime.lastError || !response || response.error) resolve([]);
+        else resolve(response.embedding ?? []);
       }
     );
-
-    // Resolve empty if extension context is invalidated
-    if (chrome.runtime.lastError) {
-      clearTimeout(timeoutId);
-      resolve([]);
-    }
+    if (chrome.runtime.lastError) { clearTimeout(timeoutId); resolve([]); }
   });
 }
 
-
 async function initConversation(): Promise<void> {
   const url = getConversationUrl();
-
-  // Always clear previous conversation's tree from the UI first
   useBranchStore.getState().clearConversation();
 
   const [existing, settings] = await Promise.all([
@@ -137,18 +120,16 @@ async function initConversation(): Promise<void> {
     useBranchStore.getState().setConversation(conversationId, existing);
     const nodes = await getConversationNodes(conversationId);
     useBranchStore.getState().loadNodes(nodes);
-    processedCount = nodes.length;
+    // processedCount = only real (non-ghost) turns
+    processedCount = nodes.filter((n) => !n.isGhost).length;
     rebuildLayoutFromNodes(nodes);
   } else {
     conversationId = generateId();
     const meta: ConversationMeta = {
-      id: conversationId,
-      url,
+      id: conversationId, url,
       title: getConversationTitle(),
-      rootNodeId: null,
-      currentNodeId: null,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      rootNodeId: null, currentNodeId: null,
+      createdAt: Date.now(), updatedAt: Date.now(),
     };
     await upsertConversation(meta);
     useBranchStore.getState().setConversation(conversationId, meta);
@@ -161,22 +142,12 @@ function startMutationObserver(): void {
   const tryAttach = (): void => {
     const container = getConversationContainer(platform);
     const target = container ?? document.body;
-
     mutationObserver?.disconnect();
-    mutationObserver = new MutationObserver(
-      debounce(handleMutations, 800) as MutationCallback
-    );
-    mutationObserver.observe(target, {
-      childList: true,
-      subtree: true,
-      characterData: false,
-      attributes: false,
-    });
+    mutationObserver = new MutationObserver(debounce(handleMutations, 800) as MutationCallback);
+    mutationObserver.observe(target, { childList: true, subtree: true });
   };
-
   tryAttach();
 
-  // Re-attach on URL change (SPA navigation)
   let lastUrl = window.location.href;
   const urlObserver = new MutationObserver(() => {
     if (window.location.href !== lastUrl) {
@@ -188,41 +159,34 @@ function startMutationObserver(): void {
   urlObserver.observe(document.body, { childList: true, subtree: true });
 }
 
-const handleMutations = (): void => {
-  scanAndProcessTurns();
-};
+const handleMutations = (): void => { scanAndProcessTurns(); };
 
 async function scanAndProcessTurns(): Promise<void> {
   const userTurns = getUserTurns(platform);
-  const aiTurns = getAITurns(platform);
-
+  const aiTurns   = getAITurns(platform);
   const pairCount = Math.min(userTurns.length, aiTurns.length);
   if (pairCount <= processedCount) return;
 
-  const store = useBranchStore.getState();
+  const store    = useBranchStore.getState();
   const settings = await getOrCreateSettings();
 
   for (let i = processedCount; i < pairCount; i++) {
-    const prompt = extractText(userTurns[i]);
+    const prompt   = extractText(userTurns[i]);
     const response = extractText(aiTurns[i]);
     if (!prompt || !response) continue;
 
     const nodeId = generateId();
     const isRoot = i === 0 && store.rootNodeId === null;
 
-    // ── Drift detection ───────────────────────────────────────────────────────
-    // Layer 1: keyword check (instant, free)
+    // ── Layer 1: keyword drift ────────────────────────────────────────────────
     const SHIFT_KEYWORDS = [
       '另外', '换个话题', '换个问题', '对了', '顺便问', '顺便说',
       'by the way', 'btw', 'anyway', 'separate question', 'separate issue',
       'different topic', 'change of topic', 'unrelated',
     ];
-    const keywordShift = SHIFT_KEYWORDS.some((k) =>
-      prompt.toLowerCase().includes(k)
-    );
+    const keywordShift = SHIFT_KEYWORDS.some((k) => prompt.toLowerCase().includes(k));
 
-    // Layer 2: embedding similarity vs PARENT node (not root)
-    // Detects sudden local topic jumps, not just "different from beginning"
+    // ── Layer 2: parent-relative similarity ───────────────────────────────────
     let driftScore = 0;
     let embedding: number[] = [];
     const textForEmbedding = `${prompt} ${response}`.slice(0, 512);
@@ -231,31 +195,23 @@ async function scanAndProcessTurns(): Promise<void> {
     if (!isRoot) {
       const parentNodeId = inSideQuest ? sideQuestCurrentId : mainBranchCurrentId;
       const parentDbNode = parentNodeId ? await db.nodes.get(parentNodeId) : null;
-
       if (embedding.length > 0 && parentDbNode?.embedding && parentDbNode.embedding.length > 0) {
-        // ML embeddings available — use cosine similarity
         driftScore = 1 - cosineSimilarity(embedding, parentDbNode.embedding);
-        console.log(`[BranchBarber] Turn ${i} embedding drift vs parent: ${driftScore.toFixed(3)}`);
+        console.log(`[BB] Turn ${i} embedding drift: ${driftScore.toFixed(3)}`);
       } else {
-        // Fallback: lexical TF-IDF drift (works without model)
         const parentText = parentDbNode ? `${parentDbNode.prompt} ${parentDbNode.response}` : "";
         if (parentText) {
           driftScore = lexicalDrift(textForEmbedding, parentText.slice(0, 512));
-          console.log(`[BranchBarber] Turn ${i} lexical drift vs parent: ${driftScore.toFixed(3)} (embeddings unavailable)`);
+          console.log(`[BB] Turn ${i} lexical drift: ${driftScore.toFixed(3)}`);
         }
       }
     }
 
-    const threshold = 1 - settings.driftThreshold;
-    const isSideQuest =
-      settings.autoDetectBranches &&
-      (keywordShift || driftScore > threshold);
+    const threshold   = 1 - settings.driftThreshold;
+    const isSideQuest = settings.autoDetectBranches && (keywordShift || driftScore > threshold);
+    console.log(`[BB] Turn ${i}: keyword=${keywordShift} drift=${driftScore.toFixed(3)} thr=${threshold.toFixed(2)} → branch=${isSideQuest}`);
 
-    console.log(`[BranchBarber] Turn ${i}: keyword=${keywordShift}, drift=${driftScore.toFixed(3)}, threshold=${threshold.toFixed(2)}, branch=${isSideQuest}`);
-
-    // ── Determine parentId and position ──────────────────────────────────────
-    // Main thread runs down column 0 (x=0). Side quests branch to column 1+.
-    // parentId points to the branching ancestor, not just the previous node.
+    // ── Layout + parentId ─────────────────────────────────────────────────────
     let parentId: string | null;
     let position: { x: number; y: number };
     let depth: number;
@@ -267,26 +223,70 @@ async function scanAndProcessTurns(): Promise<void> {
       mainBranchCurrentId = nodeId;
       mainBranchRow       = 1;
       inSideQuest         = false;
-    } else if (isSideQuest) {
-      if (!inSideQuest) {
-        // First node of this side quest — branch from the current main-branch tip
-        inSideQuest  = true;
-        sideQuestRow = mainBranchRow; // visually align with where we're branching from
-        parentId     = mainBranchCurrentId;
-        depth        = mainBranchRow; // same depth level as the branching point
-      } else {
-        parentId = sideQuestCurrentId;
-        depth    = sideQuestRow;
+
+    } else if (isSideQuest && !inSideQuest) {
+      // ── First node of a new side quest ───────────────────────────────────
+      // Both the ghost node AND the side quest node are siblings, children of
+      // the current main-branch tip.
+      const branchParent = mainBranchCurrentId;
+      const ghostRow     = mainBranchRow;
+
+      // Create ghost node (synthetic placeholder on main branch)
+      const ghostId    = generateId();
+      const ghostLabel = "Continue main thread here";
+      const ghostNode: ConversationNode = {
+        id: ghostId, conversationId,
+        parentId: branchParent,
+        prompt: "", response: "",
+        summary: ghostLabel, label: ghostLabel,
+        embedding: null, driftScore: 0,
+        isBranch: false, isRoot: false, isSideQuest: false, isGhost: true,
+        domIndex: -1,
+        createdAt: Date.now(),
+        depth: ghostRow,
+        position: { x: 0, y: ghostRow * NODE_H },
+      };
+      await upsertNode(ghostNode);
+      store.addNode(ghostNode);
+
+      // Async: fill ghost label with Gemini prediction (non-blocking)
+      if (settings.geminiApiKey) {
+        const context = branchParent
+          ? await db.nodes.get(branchParent).then((n) => n ? `${n.prompt} ${n.response}` : "")
+          : "";
+        inferGhostTopic(context, settings.geminiApiKey).then((label) => {
+          db.nodes.update(ghostId, { label, summary: label });
+          useBranchStore.getState().updateNodeLabel(ghostId, label);
+        });
       }
+
+      // Now the main branch pointer advances to the ghost
+      mainBranchCurrentId = ghostId;
+      mainBranchRow       = ghostRow + 1; // ghost occupies this row
+
+      // Side quest node branches from the same parent as the ghost
+      inSideQuest        = true;
+      sideQuestRow       = ghostRow;      // same y-row as ghost
+      parentId           = branchParent;
       position           = { x: sideQuestCol * NODE_W, y: sideQuestRow * NODE_H };
+      depth              = ghostRow;
       sideQuestCurrentId = nodeId;
       sideQuestRow++;
+
+    } else if (isSideQuest && inSideQuest) {
+      // Continuing down the current side quest
+      parentId           = sideQuestCurrentId;
+      position           = { x: sideQuestCol * NODE_W, y: sideQuestRow * NODE_H };
+      depth              = sideQuestRow;
+      sideQuestCurrentId = nodeId;
+      sideQuestRow++;
+
     } else {
+      // Main branch (returning from side quest or normal continuation)
       if (inSideQuest) {
-        // Returning to main thread after a side quest
         inSideQuest        = false;
         sideQuestCurrentId = null;
-        sideQuestCol++;    // reserve this column; next side quest gets a fresh one
+        sideQuestCol++;
       }
       parentId            = mainBranchCurrentId;
       position            = { x: 0, y: mainBranchRow * NODE_H };
@@ -295,89 +295,47 @@ async function scanAndProcessTurns(): Promise<void> {
       mainBranchRow++;
     }
 
-    const summary = await summarizeWithGemini(
-      prompt,
-      response,
-      settings.geminiApiKey
-    );
+    const summary = await summarizeWithGemini(prompt, response, settings.geminiApiKey);
 
     const node: ConversationNode = {
-      id: nodeId,
-      conversationId,
+      id: nodeId, conversationId,
       parentId: isRoot ? null : parentId,
-      prompt,
-      response,
-      summary,
-      embedding,
-      driftScore,
-      isBranch: false,
-      isRoot,
-      isSideQuest,
-      domIndex: i,
-      createdAt: Date.now(),
+      prompt, response, summary, embedding,
+      driftScore, isBranch: false, isRoot, isSideQuest,
+      domIndex: i, createdAt: Date.now(),
       label: summary || `Turn ${i + 1}`,
-      depth,
-      position,
+      depth, position,
     };
 
     await upsertNode(node);
-
-    // Update conversation meta
     await upsertConversation({
-      id: conversationId,
-      url: getConversationUrl(),
-      title: getConversationTitle(),
+      id: conversationId, url: getConversationUrl(), title: getConversationTitle(),
       rootNodeId: isRoot ? nodeId : store.rootNodeId,
-      currentNodeId: nodeId,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      currentNodeId: nodeId, createdAt: Date.now(), updatedAt: Date.now(),
     });
 
     store.addNode(node);
 
-    if (isRoot && embedding.length > 0) {
-      // Root embedding is now stored; update DB
-      await db.nodes.update(nodeId, { embedding });
-    }
+    if (isSideQuest) store.setDriftAlert({ nodeId, score: driftScore });
 
-    if (isSideQuest) {
-      store.setDriftAlert({ nodeId, score: driftScore });
-    }
-
-    // Inject "Mark as Branch" button next to this AI response
     injectBranchButton(aiTurns[i], nodeId);
-
     processedCount = i + 1;
   }
 }
 
 function injectBranchButton(aiElement: Element, nodeId: string): void {
-  const existingBtn = aiElement.querySelector("[data-branchbarber-btn]");
-  if (existingBtn) return;
+  if (aiElement.querySelector("[data-branchbarber-btn]")) return;
 
   const btn = document.createElement("button");
   btn.dataset.branchbarberBtn = nodeId;
-  btn.setAttribute("title", "Mark as Branch Point");
   btn.style.cssText = `
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    margin-top: 6px;
-    padding: 4px 10px;
-    font-size: 11px;
-    font-weight: 600;
-    color: #7c3aed;
-    background: rgba(124,58,237,0.08);
-    border: 1px solid rgba(124,58,237,0.3);
-    border-radius: 6px;
-    cursor: pointer;
-    transition: background 0.15s;
-    font-family: inherit;
-    z-index: 9999;
-    position: relative;
+    display:inline-flex;align-items:center;gap:4px;margin-top:6px;
+    padding:4px 10px;font-size:11px;font-weight:600;
+    color:#7c3aed;background:rgba(124,58,237,0.08);
+    border:1px solid rgba(124,58,237,0.3);border-radius:6px;
+    cursor:pointer;font-family:inherit;position:relative;z-index:9999;
   `;
   btn.textContent = "✂ Branch Here";
-
   btn.addEventListener("click", () => {
     useBranchStore.getState().markAsBranch(nodeId);
     db.nodes.update(nodeId, { isBranch: true });
@@ -387,11 +345,10 @@ function injectBranchButton(aiElement: Element, nodeId: string): void {
     btn.style.background = "rgba(22,163,74,0.08)";
   });
 
-  // Append button after the AI turn element
-  const actionBar = document.createElement("div");
-  actionBar.style.cssText = "display:flex; padding: 4px 0; margin-top: 2px;";
-  actionBar.appendChild(btn);
-  aiElement.appendChild(actionBar);
+  const bar = document.createElement("div");
+  bar.style.cssText = "display:flex;padding:4px 0;margin-top:2px;";
+  bar.appendChild(btn);
+  aiElement.appendChild(bar);
 }
 
 export function destroyObserver(): void {

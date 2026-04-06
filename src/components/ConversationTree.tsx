@@ -1,7 +1,9 @@
-import React, { useCallback, useMemo } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import ReactFlow, {
   Background,
   Controls,
+  useNodesState,
+  useEdgesState,
   type Node,
   type Edge,
   BackgroundVariant,
@@ -15,7 +17,7 @@ import { C } from "./theme";
 
 const NODE_TYPES = { treeNode: TreeNodeComponent };
 
-function treeNodesToFlow(
+function buildFlowElements(
   storeNodes: Record<string, TreeNode>,
   selectedId: string | null
 ): { nodes: Node<TreeNode>[]; edges: Edge[] } {
@@ -41,15 +43,16 @@ function treeNodesToFlow(
         markerEnd: { type: MarkerType.ArrowClosed, color: C.surface2 },
         style: {
           stroke:
-            treeNode.status === "branch"     ? C.blue   :
+            treeNode.status === "branch"     ? C.blue :
             treeNode.status === "side-quest" ? C.yellow :
+            treeNode.status === "ghost"      ? C.surface1 :
             C.surface2,
           strokeWidth: 1.5,
+          strokeDasharray: treeNode.status === "ghost" ? "4 3" : undefined,
         },
       });
     }
   }
-
   return { nodes, edges };
 }
 
@@ -58,14 +61,34 @@ export function ConversationTree() {
   const selectedId = useBranchStore((s) => s.selectedNodeId);
   const selectNode = useBranchStore((s) => s.selectNode);
 
-  // Derive nodes/edges directly from store — no separate useState needed (avoids render loops)
-  const { nodes, edges } = useMemo(
-    () => treeNodesToFlow(storeNodes, selectedId),
-    [storeNodes, selectedId]
-  );
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+
+  // Track node IDs to detect structural changes (add/remove) vs drag-only moves
+  const prevNodeIdsRef = useRef<string>("");
+
+  useEffect(() => {
+    const currentIds = Object.keys(storeNodes).sort().join(",");
+    const idsChanged = currentIds !== prevNodeIdsRef.current;
+    prevNodeIdsRef.current = currentIds;
+
+    if (idsChanged) {
+      // Structural change — rebuild everything including positions
+      const { nodes: n, edges: e } = buildFlowElements(storeNodes, selectedId);
+      setNodes(n);
+      setEdges(e);
+    } else {
+      // Only selection changed — update selected flag without touching positions
+      setNodes((prev) =>
+        prev.map((n) => ({ ...n, selected: n.id === selectedId }))
+      );
+    }
+  }, [storeNodes, selectedId, setNodes, setEdges]);
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node<TreeNode>) => selectNode(node.id),
+    (_: React.MouseEvent, node: Node<TreeNode>) => {
+      if (node.data.status !== "ghost") selectNode(node.id);
+    },
     [selectNode]
   );
 
@@ -78,7 +101,7 @@ export function ConversationTree() {
       }}>
         <div style={{ fontSize: 28 }}>🌿</div>
         <p style={{ fontWeight: 600, color: C.subtext0, margin: 0 }}>No conversation yet</p>
-        <p style={{ margin: 0 }}>Start chatting and BranchBarber will map your tree automatically.</p>
+        <p style={{ margin: 0 }}>Start chatting and BranchBarber will map your tree.</p>
       </div>
     );
   }
@@ -88,14 +111,16 @@ export function ConversationTree() {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
         nodeTypes={NODE_TYPES}
         fitView
         fitViewOptions={{ padding: 0.3 }}
-        minZoom={0.3}
+        minZoom={0.2}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
-        nodesDraggable={false}
+        nodesDraggable={true}
         nodesConnectable={false}
         elementsSelectable={true}
       >

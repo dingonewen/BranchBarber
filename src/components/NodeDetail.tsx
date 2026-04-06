@@ -3,21 +3,24 @@ import { db } from "../db";
 import { C } from "./theme";
 
 const STATUS_COLOR: Record<string, string> = {
-  root: C.mauve, branch: C.blue, "side-quest": C.yellow, normal: C.overlay1,
+  root: C.mauve, branch: C.blue, "side-quest": C.yellow, ghost: C.overlay1, normal: C.overlay1,
 };
 const STATUS_LABEL: Record<string, string> = {
-  root: "Root Node", branch: "Branch Point", "side-quest": "Side Quest", normal: "",
+  root: "Root Node", branch: "Branch Point", "side-quest": "Side Quest", ghost: "Placeholder", normal: "",
 };
 
 export function NodeDetail() {
-  const selectedId   = useBranchStore((s) => s.selectedNodeId);
-  const nodes        = useBranchStore((s) => s.nodes);
-  const markAsBranch = useBranchStore((s) => s.markAsBranch);
-  const selectNode   = useBranchStore((s) => s.selectNode);
+  const selectedId    = useBranchStore((s) => s.selectedNodeId);
+  const nodes         = useBranchStore((s) => s.nodes);
+  const markAsBranch  = useBranchStore((s) => s.markAsBranch);
+  const unmarkBranch  = useBranchStore((s) => s.unmarkBranch);
+  const selectNode    = useBranchStore((s) => s.selectNode);
 
   if (!selectedId) return null;
   const node = nodes[selectedId];
   if (!node) return null;
+
+  const isGhost = node.status === "ghost";
 
   const btn = (label: string, onClick: () => void, accent?: string) => (
     <button key={label} onClick={onClick} style={{
@@ -43,11 +46,11 @@ export function NodeDetail() {
         <button onClick={() => selectNode(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.overlay1, fontSize: 12, padding: 0 }}>✕</button>
       </div>
 
-      <div style={{ fontWeight: 600, color: C.text, lineHeight: 1.4, marginBottom: 8 }}>
+      <div style={{ fontWeight: 600, color: isGhost ? C.overlay1 : C.text, lineHeight: 1.4, marginBottom: 8, fontStyle: isGhost ? "italic" : "normal" }}>
         {node.summary || node.label}
       </div>
 
-      {node.driftScore > 0 && node.status !== "root" && (
+      {!isGhost && node.driftScore > 0 && node.status !== "root" && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
             <span style={{ color: C.overlay1, fontSize: 10 }}>Context Drift</span>
@@ -61,17 +64,21 @@ export function NodeDetail() {
         </div>
       )}
 
-      <div style={{ background: C.crust, borderRadius: 6, padding: "6px 8px", marginBottom: 8 }}>
-        <div style={{ color: C.overlay1, fontSize: 10, marginBottom: 2 }}>Prompt</div>
-        <div style={{ color: C.subtext1, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" as const }}>
-          {node.prompt}
+      {!isGhost && (
+        <div style={{ background: C.crust, borderRadius: 6, padding: "6px 8px", marginBottom: 8 }}>
+          <div style={{ color: C.overlay1, fontSize: 10, marginBottom: 2 }}>Prompt</div>
+          <div style={{ color: C.subtext1, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" as const }}>
+            {node.prompt}
+          </div>
         </div>
-      </div>
+      )}
 
       <div style={{ display: "flex", gap: 6 }}>
-        {btn("👁 View",  () => window.postMessage({ type: "BRANCHBARBER_SCROLL_TO", domIndex: node.domIndex }, "*"))}
-        {btn("↩ Reset", () => window.postMessage({ type: "BRANCHBARBER_RESET_TO",  domIndex: node.domIndex }, "*"))}
-        {node.status === "normal" && btn("✂ Branch", () => { markAsBranch(selectedId); db.nodes.update(selectedId, { isBranch: true }); }, C.mauve)}
+        {!isGhost && btn("👁 View",  () => window.postMessage({ type: "BRANCHBARBER_SCROLL_TO", domIndex: node.domIndex }, "*"))}
+        {!isGhost && btn("↩ Reset", () => window.postMessage({ type: "BRANCHBARBER_RESET_TO",  domIndex: node.domIndex }, "*"))}
+        {node.status === "normal"   && btn("✂ Branch", () => { markAsBranch(selectedId); db.nodes.update(selectedId, { isBranch: true }); }, C.mauve)}
+        {node.status === "branch"   && btn("↺ Unbranch", () => { unmarkBranch(selectedId); db.nodes.update(selectedId, { isBranch: false }); }, C.overlay1)}
+        {node.status === "side-quest" && btn("↺ Unbranch", () => { unmarkBranch(selectedId); db.nodes.update(selectedId, { isSideQuest: false }); }, C.overlay1)}
       </div>
     </div>
   );

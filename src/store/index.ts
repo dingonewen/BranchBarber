@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { ConversationNode, ConversationMeta } from "../db";
 
-export type NodeStatus = "root" | "branch" | "side-quest" | "normal";
+export type NodeStatus = "root" | "branch" | "side-quest" | "normal" | "ghost";
 
 export interface TreeNode {
   id: string;
@@ -19,36 +19,30 @@ export interface TreeNode {
 }
 
 interface BranchBarberState {
-  // Conversation
   conversationId: string | null;
   conversationMeta: ConversationMeta | null;
-
-  // Tree data
   nodes: Record<string, TreeNode>;
   rootNodeId: string | null;
   currentNodeId: string | null;
-
-  // UI
   selectedNodeId: string | null;
   sidebarVisible: boolean;
   sidebarTab: "tree" | "settings";
   isProcessing: boolean;
   driftAlert: { nodeId: string; score: number } | null;
-
-  // Settings
   geminiApiKey: string;
   driftThreshold: number;
   autoDetectBranches: boolean;
 
-  // Actions
   clearConversation: () => void;
   setConversation: (id: string, meta: ConversationMeta) => void;
   addNode: (node: ConversationNode) => void;
+  updateNodeLabel: (id: string, label: string) => void;
   updateNodeSummary: (id: string, summary: string) => void;
   updateNodeEmbedding: (id: string, embedding: number[]) => void;
   setCurrentNode: (id: string) => void;
   selectNode: (id: string | null) => void;
   markAsBranch: (id: string) => void;
+  unmarkBranch: (id: string) => void;
   setSidebarVisible: (v: boolean) => void;
   setSidebarTab: (tab: "tree" | "settings") => void;
   setProcessing: (v: boolean) => void;
@@ -59,7 +53,8 @@ interface BranchBarberState {
 
 function dbNodeToTreeNode(node: ConversationNode): TreeNode {
   let status: NodeStatus = "normal";
-  if (node.isRoot) status = "root";
+  if (node.isGhost)      status = "ghost";
+  else if (node.isRoot)  status = "root";
   else if (node.isBranch) status = "branch";
   else if (node.isSideQuest) status = "side-quest";
   return {
@@ -80,14 +75,10 @@ function dbNodeToTreeNode(node: ConversationNode): TreeNode {
 
 function buildChildren(nodes: Record<string, TreeNode>): Record<string, TreeNode> {
   const result = { ...nodes };
-  for (const id in result) {
-    result[id] = { ...result[id], children: [] };
-  }
+  for (const id in result) result[id] = { ...result[id], children: [] };
   for (const id in result) {
     const { parentId } = result[id];
-    if (parentId && result[parentId]) {
-      result[parentId].children.push(id);
-    }
+    if (parentId && result[parentId]) result[parentId].children.push(id);
   }
   return result;
 }
@@ -110,8 +101,7 @@ export const useBranchStore = create<BranchBarberState>((set) => ({
   clearConversation: () =>
     set({ nodes: {}, rootNodeId: null, currentNodeId: null, selectedNodeId: null, driftAlert: null }),
 
-  setConversation: (id, meta) =>
-    set({ conversationId: id, conversationMeta: meta }),
+  setConversation: (id, meta) => set({ conversationId: id, conversationMeta: meta }),
 
   addNode: (dbNode) => {
     set((state) => {
@@ -119,36 +109,35 @@ export const useBranchStore = create<BranchBarberState>((set) => ({
       const updated = { ...state.nodes, [treeNode.id]: treeNode };
       const withChildren = buildChildren(updated);
       const rootNodeId = dbNode.isRoot ? dbNode.id : state.rootNodeId;
-      return {
-        nodes: withChildren,
-        rootNodeId,
-        currentNodeId: dbNode.id,
-      };
+      // Don't advance currentNodeId for ghost nodes
+      const currentNodeId = dbNode.isGhost ? state.currentNodeId : dbNode.id;
+      return { nodes: withChildren, rootNodeId, currentNodeId };
     });
   },
 
-  updateNodeSummary: (id, summary) =>
+  updateNodeLabel: (id, label) =>
     set((state) => ({
-      nodes: {
-        ...state.nodes,
-        [id]: { ...state.nodes[id], summary },
-      },
+      nodes: { ...state.nodes, [id]: { ...state.nodes[id], label } },
     })),
 
-  updateNodeEmbedding: (_id, _embedding) => {
-    // embeddings stored in DB only, not in memory store
-  },
+  updateNodeSummary: (id, summary) =>
+    set((state) => ({
+      nodes: { ...state.nodes, [id]: { ...state.nodes[id], summary } },
+    })),
+
+  updateNodeEmbedding: (_id, _embedding) => { /* embeddings in DB only */ },
 
   setCurrentNode: (id) => set({ currentNodeId: id }),
-
   selectNode: (id) => set({ selectedNodeId: id }),
 
   markAsBranch: (id) =>
     set((state) => ({
-      nodes: {
-        ...state.nodes,
-        [id]: { ...state.nodes[id], status: "branch" },
-      },
+      nodes: { ...state.nodes, [id]: { ...state.nodes[id], status: "branch" } },
+    })),
+
+  unmarkBranch: (id) =>
+    set((state) => ({
+      nodes: { ...state.nodes, [id]: { ...state.nodes[id], status: "normal" } },
     })),
 
   setSidebarVisible: (v) => set({ sidebarVisible: v }),
@@ -171,10 +160,9 @@ export const useBranchStore = create<BranchBarberState>((set) => ({
       for (const n of dbNodes) {
         nodeMap[n.id] = dbNodeToTreeNode(n);
         if (n.isRoot) rootNodeId = n.id;
-        currentNodeId = n.id; // last one is current
+        if (!n.isGhost) currentNodeId = n.id;
       }
-      const withChildren = buildChildren(nodeMap);
-      return { nodes: withChildren, rootNodeId, currentNodeId };
+      return { nodes: buildChildren(nodeMap), rootNodeId, currentNodeId };
     });
   },
 }));

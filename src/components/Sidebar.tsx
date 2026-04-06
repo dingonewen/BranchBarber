@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useBranchStore } from "../store";
 import { ConversationTree } from "./ConversationTree";
 import { NodeDetail } from "./NodeDetail";
@@ -9,6 +9,10 @@ import { C } from "./theme";
 
 export { C };
 
+const MIN_W = 280;
+const MAX_W = 700;
+const DEFAULT_W = 340;
+
 const LEGEND = [
   { color: C.mauve,    label: "Root" },
   { color: C.blue,     label: "Branch" },
@@ -17,8 +21,12 @@ const LEGEND = [
 ];
 
 export function Sidebar() {
-  const [open, setOpen] = useState(true);
-  const [tab, setTab]   = useState<"tree" | "settings">("tree");
+  const [open, setOpen]   = useState(true);
+  const [tab, setTab]     = useState<"tree" | "settings">("tree");
+  const [width, setWidth] = useState(DEFAULT_W);
+  const dragging = useRef(false);
+  const startX   = useRef(0);
+  const startW   = useRef(DEFAULT_W);
 
   const nodeCount    = useBranchStore((s) => Object.keys(s.nodes).length);
   const driftAlert   = useBranchStore((s) => s.driftAlert);
@@ -31,18 +39,47 @@ export function Sidebar() {
     return () => window.removeEventListener("bb-show", handler);
   }, []);
 
+  // ── Resize drag handlers ─────────────────────────────────────────────────
+  const onResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragging.current = true;
+    startX.current   = e.clientX;
+    startW.current   = width;
+  }, [width]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragging.current) return;
+      const delta = startX.current - e.clientX; // dragging left = wider
+      const newW  = Math.min(MAX_W, Math.max(MIN_W, startW.current + delta));
+      setWidth(newW);
+    };
+    const onUp = () => { dragging.current = false; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  const TOGGLE_W = 28;
+
   return (
     <div
       style={{
         position: "fixed", top: 0, right: 0,
-        width: 368, height: "100vh",
+        width: open ? width + TOGGLE_W : TOGGLE_W,
+        height: "100vh",
         zIndex: 2147483647,
         pointerEvents: "none",
         fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
         fontSize: 13,
+        transition: dragging.current ? "none" : "width 0.25s cubic-bezier(0.4,0,0.2,1)",
       }}
     >
-      {/* ── Toggle tab ── */}
+      {/* ── Toggle tab — sticks to left edge of the whole wrapper ── */}
       <div
         onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setOpen((v) => !v); }}
         title={open ? "Close panel" : "Open BranchBarber"}
@@ -50,7 +87,7 @@ export function Sidebar() {
           pointerEvents: "auto",
           position: "absolute", left: 0, top: "50%",
           transform: "translateY(-50%)",
-          width: 28, height: 64,
+          width: TOGGLE_W, height: 64,
           background: C.surface0,
           border: `1px solid ${C.surface1}`,
           borderRight: "none",
@@ -68,9 +105,11 @@ export function Sidebar() {
         style={{
           pointerEvents: "auto",
           position: "absolute", top: 0, right: 0,
-          width: 340, height: "100vh",
+          width: width, height: "100vh",
           background: C.base,
           borderLeft: `1px solid ${C.surface1}`,
+          // Rounded top-left and bottom-left corners
+          borderRadius: "12px 0 0 12px",
           display: "flex", flexDirection: "column",
           transform: open ? "translateX(0)" : "translateX(100%)",
           transition: "transform 0.25s cubic-bezier(0.4,0,0.2,1)",
@@ -78,6 +117,18 @@ export function Sidebar() {
           boxShadow: "-4px 0 20px rgba(0,0,0,0.08)",
         }}
       >
+        {/* Resize handle — draggable left edge strip */}
+        <div
+          onMouseDown={onResizeMouseDown}
+          style={{
+            position: "absolute", left: 0, top: 0,
+            width: 5, height: "100%",
+            cursor: "ew-resize",
+            zIndex: 10,
+            borderRadius: "12px 0 0 12px",
+          }}
+        />
+
         {/* Header */}
         <div style={{
           display: "flex", alignItems: "center", gap: 8,

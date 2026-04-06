@@ -12,6 +12,7 @@ export interface ConversationNode {
   isBranch: boolean;
   isRoot: boolean;
   isSideQuest: boolean;
+  isGhost?: boolean;
   domIndex: number;
   createdAt: number;
   label: string;
