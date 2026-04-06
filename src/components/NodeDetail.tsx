@@ -70,10 +70,10 @@ export function NodeDetail() {
     await upsertNode(ghostData);
     addNode(ghostData);
 
-    // Async: fill ghost label with Gemini prediction (fire-and-forget)
+    // Async: fill ghost label by summarising the direct parent node
     getOrCreateSettings().then((settings) => {
       if ((settings.summaryMode ?? "local") !== "gemini" || !settings.geminiApiKey || !node.parentId) return;
-      const ctx = `${parent.prompt} ${parent.response}`;
+      const ctx = `${parent.prompt}\n\n${parent.response}`.slice(0, 600);
       inferGhostTopic(ctx, settings.geminiApiKey).then((label) => {
         if (!label) return;
         db.nodes.update(ghostId, { label, summary: label });

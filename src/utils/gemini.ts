@@ -33,7 +33,8 @@ export async function summarizeWithGemini(
   }
 }
 
-// Called once per branch — predicts what the main thread would have continued with.
+// Called once per branch — summarises what the main thread was about so the
+// ghost placeholder node clearly labels the original thread topic.
 export async function inferGhostTopic(
   mainBranchContext: string,
   apiKey: string
@@ -41,7 +42,7 @@ export async function inferGhostTopic(
   if (!apiKey) return "Continue main thread here";
   try {
     const text = await callGemini(
-      `Based on this conversation, predict in 8 words what the user would likely have asked next to continue the main topic. Return only the prediction, no punctuation or quotes.\n\n${mainBranchContext.slice(0, 600)}`,
+      `Summarize the main topic of this conversation thread in 8 words or fewer. This will label a placeholder node representing the original thread. Return only the summary, no punctuation or quotes.\n\n${mainBranchContext.slice(0, 800)}`,
       apiKey
     );
     return text || "Continue main thread here";

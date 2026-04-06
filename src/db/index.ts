@@ -52,6 +52,16 @@ class BranchBarberDB extends Dexie {
       conversations: "id, url, updatedAt",
       settings: "id",
     });
+    // v2: add summaryMode to settings
+    this.version(2).stores({
+      nodes: "id, conversationId, parentId, createdAt, domIndex",
+      conversations: "id, url, updatedAt",
+      settings: "id",
+    }).upgrade((tx) => {
+      return tx.table("settings").toCollection().modify((s) => {
+        if (s.summaryMode === undefined) s.summaryMode = "local";
+      });
+    });
   }
 }
 

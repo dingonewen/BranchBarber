@@ -24,8 +24,7 @@ function Tooltip({ text }: { text: string }) {
       }}>?</span>
       {show && (
         <span style={{
-          position: "absolute", bottom: "calc(100% + 6px)", left: "50%",
-          transform: "translateX(-50%)",
+          position: "absolute", bottom: "calc(100% + 6px)", left: 0,
           width: 200, background: C.crust, border: `1px solid ${C.surface1}`,
           borderRadius: 8, padding: "7px 10px",
           fontSize: 10, color: C.subtext1, lineHeight: 1.5,

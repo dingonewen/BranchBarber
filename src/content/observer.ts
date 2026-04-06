@@ -250,10 +250,11 @@ async function scanAndProcessTurns(): Promise<void> {
       await upsertNode(ghostNode);
       store.addNode(ghostNode);
 
-      // Async: fill ghost label with Gemini prediction
+      // Async: fill ghost label by summarising the direct parent node
       if ((settings.summaryMode ?? "local") === "gemini" && settings.geminiApiKey && branchFromId) {
         db.nodes.get(branchFromId).then((n) => {
-          const ctx = n ? `${n.prompt} ${n.response}` : "";
+          if (!n) return;
+          const ctx = `${n.prompt}\n\n${n.response}`.slice(0, 600);
           inferGhostTopic(ctx, settings.geminiApiKey).then((label) => {
             db.nodes.update(ghostId, { label, summary: label });
             useBranchStore.getState().updateNodeLabel(ghostId, label);
