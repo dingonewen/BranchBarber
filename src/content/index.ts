@@ -17,5 +17,11 @@ if (document.readyState === "loading") {
   bootstrap();
 }
 
+// Re-init when popup requests a fresh tree
+window.addEventListener("bb-reset", () => {
+  destroyObserver();
+  initObserver();
+});
+
 // Cleanup on unload
 window.addEventListener("unload", destroyObserver);

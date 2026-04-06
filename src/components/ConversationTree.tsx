@@ -40,12 +40,12 @@ function buildFlowElements(
         source: n.parentId,
         target: id,
         type: "smoothstep",
-        animated: n.status === "side-quest",
+        animated: n.status === "pending",
         markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor },
         style: {
           stroke: edgeColor,
           strokeWidth: 1.5,
-          strokeDasharray: n.status === "ghost" ? "4 3" : undefined,
+          strokeDasharray: n.status === "ghost" || n.status === "pending" ? "4 3" : undefined,
           opacity: n.status === "ghost" ? 0.5 : 1,
         },
       });

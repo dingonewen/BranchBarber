@@ -24,11 +24,10 @@ export const TreeNodeComponent = memo(({ data, selected }: NodeProps<TreeNode>) 
   const borderStyle = isGhost ? "1.5px dashed" : isPending ? "2px dashed" : "2px solid";
 
   const badgeLabel =
-    isRoot     ? "Root"
-    : isPending  ? "Side Quest?"    // question mark = not confirmed
-    : data.status === "side-quest" ? "Side Quest"
-    : data.status === "branch"     ? "Branch"
-    : isIsolated ? "Isolated"
+    isRoot                         ? "Root"
+    : isPending                    ? "Side Quest?"
+    : data.status === "side-quest" ? "Branch"
+    : isIsolated                   ? "Isolated"
     : null;
 
   return (

@@ -1,5 +1,7 @@
 import type { Platform } from "./selectors";
-import { getUserTurns } from "./selectors";
+import { getUserTurns, getConversationUrl } from "./selectors";
+import { db } from "../db";
+import { useBranchStore } from "../store";
 
 let _platform: Platform = "unknown";
 
@@ -30,7 +32,29 @@ export function initNavigator(platform: Platform): void {
       showSidebar();
       return false;
     }
+    if (message.type === "RESET_TREE") {
+      // Reset DB + store, re-init observer, then show sidebar — all in one shot
+      resetTree().then(() => {
+        showSidebar();
+        sendResponse({ ok: true });
+      });
+      return true; // async
+    }
   });
+}
+
+async function resetTree(): Promise<void> {
+  const url = getConversationUrl();
+  // Delete all nodes for this conversation from IndexedDB
+  const existing = await db.conversations.where("url").equals(url).first();
+  if (existing) {
+    await db.nodes.where("conversationId").equals(existing.id).delete();
+    await db.conversations.delete(existing.id);
+  }
+  // Clear the in-memory store
+  useBranchStore.getState().clearConversation();
+  // Re-init observer by dispatching a custom event content/index.ts listens for
+  window.dispatchEvent(new CustomEvent("bb-reset"));
 }
 
 function showSidebar(): void {

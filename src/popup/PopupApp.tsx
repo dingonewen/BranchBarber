@@ -2,130 +2,132 @@ import { useEffect, useState } from "react";
 
 type Status = "idle" | "active" | "loading";
 
+const SUPPORTED_HOSTS = ["chatgpt.com", "chat.openai.com", "gemini.google.com"];
+
+const S = {
+  wrap:    { width: 288, background: "#eff1f5", color: "#4c4f69", padding: 16, display: "flex", flexDirection: "column" as const, gap: 12, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
+  header:  { display: "flex", alignItems: "center", gap: 10 },
+  title:   { fontWeight: 700, fontSize: 14, color: "#4c4f69", letterSpacing: "-0.01em" },
+  sub:     { fontSize: 10, color: "#8c8fa1", marginTop: 1 },
+  status:  { display: "flex", alignItems: "center", gap: 8, background: "#e6e9ef", borderRadius: 8, padding: "7px 10px" },
+  dot:     (color: string): React.CSSProperties => ({ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }),
+  statusTxt: { fontSize: 11, color: "#6c6f85" } as React.CSSProperties,
+  hint:    { fontSize: 11, color: "#8c8fa1", lineHeight: 1.5 } as React.CSSProperties,
+  row:     { display: "flex", alignItems: "flex-start", gap: 6 } as React.CSSProperties,
+  btn:     (bg: string, disabled = false): React.CSSProperties => ({
+    flex: 1, padding: "8px 0", borderRadius: 8, border: "none",
+    cursor: disabled ? "default" : "pointer",
+    background: disabled ? "#bcc0cc" : bg,
+    color: "#fff", fontWeight: 700, fontSize: 12,
+  }),
+  footer:  { fontSize: 10, color: "#acb0be", textAlign: "center" as const },
+};
+
+// Always consume lastError so Chrome never logs "Unchecked runtime.lastError"
+function send(tabId: number, msg: object, cb?: (r: unknown) => void): void {
+  chrome.tabs.sendMessage(tabId, msg, (response) => {
+    void chrome.runtime.lastError; // read to suppress the error
+    cb?.(response);
+  });
+}
+
 export function PopupApp() {
-  const [status, setStatus] = useState<Status>("loading");
-  const [tabUrl, setTabUrl] = useState<string>("");
+  const [status, setStatus]   = useState<Status>("loading");
+  const [tabUrl, setTabUrl]   = useState("");
+  const [tabId, setTabId]     = useState<number | null>(null);
+  const [busy, setBusy]       = useState(false);
 
   useEffect(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const url = tabs[0]?.url ?? "";
+      const id  = tabs[0]?.id ?? null;
       setTabUrl(url);
+      setTabId(id);
 
-      const isSupported =
-        url.includes("chatgpt.com") ||
-        url.includes("chat.openai.com") ||
-        url.includes("gemini.google.com");
+      const supported = SUPPORTED_HOSTS.some((h) => url.includes(h));
+      if (!supported || id == null) { setStatus("idle"); return; }
 
-      if (!isSupported) {
-        setStatus("idle");
-        return;
-      }
-
-      chrome.tabs.sendMessage(
-        tabs[0].id!,
-        { type: "GET_STATUS" },
-        (response) => {
-          if (chrome.runtime.lastError || !response) {
-            setStatus("idle");
-          } else {
-            setStatus("active");
-          }
-        }
-      );
+      send(id, { type: "GET_STATUS" }, (resp) => {
+        setStatus(resp ? "active" : "idle");
+      });
     });
   }, []);
 
-  const openSidebar = () => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      chrome.tabs.sendMessage(tabs[0].id!, { type: "SHOW_SIDEBAR" });
+  const isSupported = SUPPORTED_HOSTS.some((h) => tabUrl.includes(h));
+  const canAct      = isSupported && tabId != null;
+
+  const openSaved = () => {
+    if (!canAct) return;
+    send(tabId!, { type: "SHOW_SIDEBAR" });
+  };
+
+  const openNew = () => {
+    if (!canAct || busy) return;
+    setBusy(true);
+    send(tabId!, { type: "RESET_TREE" }, () => {
+      setBusy(false);
     });
   };
 
-  const isSupported =
-    tabUrl.includes("chatgpt.com") ||
-    tabUrl.includes("chat.openai.com") ||
-    tabUrl.includes("gemini.google.com");
+  const dotColor =
+    status === "active"  ? "#40a02b" :
+    status === "loading" ? "#df8e1d" : "#acb0be";
+
+  const statusText =
+    status === "active"  ? "Active on this page" :
+    status === "loading" ? "Checking..." :
+    isSupported          ? "Not yet active" :
+    "Navigate to ChatGPT or Gemini";
 
   return (
-    <div className="w-72 bg-zinc-950 text-white p-4 flex flex-col gap-4">
-      {/* Header */}
-      <div className="flex items-center gap-2.5">
-        <span className="text-2xl">🌿</span>
+    <div style={S.wrap}>
+      <div style={S.header}>
+        <span style={{ fontSize: 22 }}>🌿</span>
         <div>
-          <h1 className="text-sm font-bold tracking-tight">BranchBarber</h1>
-          <p className="text-[10px] text-zinc-500">Conversation Tree Extension</p>
+          <div style={S.title}>BranchBarber</div>
+          <div style={S.sub}>Conversation Tree Extension</div>
         </div>
       </div>
 
-      {/* Status */}
-      <div className="flex items-center gap-2 bg-zinc-900 rounded-lg px-3 py-2">
-        <div
-          className={`w-2 h-2 rounded-full ${
-            status === "active"
-              ? "bg-emerald-500"
-              : status === "loading"
-              ? "bg-amber-400 animate-pulse"
-              : "bg-zinc-600"
-          }`}
-        />
-        <span className="text-xs text-zinc-400">
-          {status === "active"
-            ? "Active on this page"
-            : status === "loading"
-            ? "Checking..."
-            : isSupported
-            ? "Ready to activate"
-            : "Navigate to ChatGPT or Gemini"}
-        </span>
+      <div style={S.status}>
+        <div style={S.dot(dotColor)} />
+        <span style={S.statusTxt}>{statusText}</span>
       </div>
 
-      {/* Info */}
       {!isSupported ? (
-        <div className="flex flex-col gap-1.5 text-xs text-zinc-500">
-          <p>BranchBarber works on:</p>
-          <ul className="space-y-0.5 pl-2">
-            {[
-              "chatgpt.com",
-              "chat.openai.com",
-              "gemini.google.com",
-            ].map((host) => (
-              <li key={host} className="flex items-center gap-1.5">
-                <span className="text-zinc-700">•</span>
-                <span>{host}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        <div style={S.hint}>Works on: {SUPPORTED_HOSTS.join(", ")}</div>
       ) : (
-        <div className="flex flex-col gap-2 text-xs text-zinc-400">
-          <div className="flex items-start gap-2">
-            <span className="mt-0.5 text-purple-400">✂</span>
-            <span>Click "Branch Here" on any AI response to mark a branch point</span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+          {([
+            ["✂", "#8839ef", 'Click "Branch" on a node to send it to the right'],
+            ["⚠", "#fe640b", "Orange nodes = auto-detected topic drift"],
+            ["⛓", "#8c8fa1", "Detach splices a node out without losing children"],
+          ] as [string, string, string][]).map(([icon, color, text]) => (
+            <div key={text} style={S.row}>
+              <span style={{ fontSize: 12, color, marginTop: 1 }}>{icon}</span>
+              <span style={S.hint}>{text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {canAct && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button style={S.btn("#8839ef")} onClick={openSaved}>
+              Open Saved Tree
+            </button>
+            <button style={S.btn("#179299", busy)} onClick={openNew} disabled={busy}>
+              {busy ? "Resetting..." : "New Tree"}
+            </button>
           </div>
-          <div className="flex items-start gap-2">
-            <span className="mt-0.5 text-amber-400">⚠</span>
-            <span>Automatic drift detection highlights context shifts</span>
-          </div>
-          <div className="flex items-start gap-2">
-            <span className="mt-0.5 text-blue-400">🌿</span>
-            <span>Tree panel shows your full conversation structure</span>
+          <div style={{ fontSize: 10, color: "#8c8fa1", textAlign: "center" }}>
+            "New Tree" clears saved nodes for this conversation
           </div>
         </div>
       )}
 
-      {/* Open sidebar button */}
-      {isSupported && (
-        <button
-          onClick={openSidebar}
-          className="w-full py-2 bg-purple-700 hover:bg-purple-600 text-white text-xs font-semibold rounded-lg transition-colors"
-        >
-          Open Tree Panel
-        </button>
-      )}
-
-      <div className="text-[10px] text-zinc-700 text-center">
-        v1.0.0 · Local-first · No telemetry
-      </div>
+      <div style={S.footer}>v1.0.0 · Local-first · No telemetry</div>
     </div>
   );
 }
