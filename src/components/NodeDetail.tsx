@@ -10,7 +10,7 @@ const NODE_H = 130;
 
 const STATUS_BADGE: Record<string, string> = {
   root: "Root", "side-quest": "Branch",
-  pending: "Side Quest?", ghost: "Placeholder", normal: "Main Thread",
+  ghost: "Placeholder", normal: "Main Thread",
 };
 
 export function NodeDetail() {
@@ -33,10 +33,7 @@ export function NodeDetail() {
   if (!node) return null;
 
   const isGhost  = node.status === "ghost";
-  const isBranched = node.status === "pending" || node.status === "side-quest";
-  const accent   = isGhost     ? C.overlay1
-                 : isBranched && node.status === "pending" ? C.peach
-                 : branchColor(node.position.x);
+  const accent   = isGhost ? C.overlay1 : branchColor(node.position.x);
 
   // ── Branch (normal → side-quest) ─────────────────────────────────────────
   // Creates a ghost placeholder at the left-child slot, moves this node + its
@@ -99,14 +96,6 @@ export function NodeDetail() {
     // Mark as confirmed branch
     markAsBranch(selectedId);
     db.nodes.update(selectedId, { isBranch: true, isSideQuest: true, position: branchPos });
-    bumpLayoutKey();
-  };
-
-  // ── Confirm pending (auto-detected, positions already correct) ────────────
-  const handleConfirm = () => {
-    pushUndo();
-    markAsBranch(selectedId);
-    db.nodes.update(selectedId, { isBranch: true });
     bumpLayoutKey();
   };
 
@@ -200,13 +189,6 @@ export function NodeDetail() {
         </div>
       </div>
 
-      {/* Pending explanation */}
-      {node.status === "pending" && (
-        <div style={{ fontSize: 10, color: C.peach, background: "#fff4ec", borderRadius: 6, padding: "4px 8px", marginBottom: 8 }}>
-          Auto-detected topic shift — confirm to lock as a branch, or dismiss to keep on main thread.
-        </div>
-      )}
-
       {/* Ghost label */}
       {isGhost && (
         <div style={{ fontStyle: "italic", color: C.overlay1, marginBottom: 8 }}>
@@ -261,15 +243,7 @@ export function NodeDetail() {
         {node.status === "normal" && node.parentId !== null &&
           btn("✂ Branch →", handleBranch, accent)}
 
-        {/* Pending (auto-detected) → confirm or dismiss */}
-        {node.status === "pending" && (
-          <>
-            {btn("✓ Confirm", handleConfirm, C.peach)}
-            {btn("↺ Back to Main", handleUnbranch)}
-          </>
-        )}
-
-        {/* Confirmed branch → only option is back to main */}
+        {/* Branch → only option is back to main */}
         {node.status === "side-quest" &&
           btn("↺ Back to Main", handleUnbranch, C.surface2)}
 

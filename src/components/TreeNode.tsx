@@ -6,26 +6,19 @@ import { C, branchColor, branchBg } from "./theme";
 export const TreeNodeComponent = memo(({ data, selected }: NodeProps<TreeNode>) => {
   const isGhost    = data.status === "ghost";
   const isRoot     = data.status === "root";
-  const isPending  = data.status === "pending";   // auto-detected, not confirmed
   const isIsolated = data.status === "normal" && data.parentId === null && !isRoot;
 
-  // Pending = orange (peach) regardless of column
-  // Everything else = column-based color
-  const accent = isGhost   ? C.surface1
-               : isPending ? C.peach
-               : isRoot    ? C.mauve
-               :             branchColor(data.position.x);
+  const accent = isGhost ? C.surface1
+               : isRoot  ? C.mauve
+               :           branchColor(data.position.x);
 
-  const bg = isGhost   ? C.mantle
-           : isPending ? "#fff4ec"    // peach tint
-           :             branchBg(data.position.x);
+  const bg = isGhost ? C.mantle : branchBg(data.position.x);
 
   const borderColor = selected ? C.mauve : accent;
-  const borderStyle = isGhost ? "1.5px dashed" : isPending ? "2px dashed" : "2px solid";
+  const borderStyle = isGhost ? "1.5px dashed" : "2px solid";
 
   const badgeLabel =
     isRoot                         ? "Root"
-    : isPending                    ? "Side Quest?"
     : data.status === "side-quest" ? "Branch"
     : isIsolated                   ? "Isolated"
     : null;
@@ -61,10 +54,6 @@ export const TreeNodeComponent = memo(({ data, selected }: NodeProps<TreeNode>) 
         }}>
           {badgeLabel}
         </span>
-      )}
-
-      {isPending && (
-        <span style={{ position: "absolute", top: -6, right: -6, fontSize: 12 }}>⚠️</span>
       )}
 
       {isGhost ? (

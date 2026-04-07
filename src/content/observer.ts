@@ -34,31 +34,19 @@ const NODE_H = 130;
 
 // Current tip of each branch — used to parent new nodes correctly
 let mainBranchCurrentId: string | null = null;
-let sideQuestCurrentId:  string | null = null;
-let inSideQuest = false;
-
 function resetLayout(): void {
   mainBranchCurrentId = null;
-  sideQuestCurrentId  = null;
-  inSideQuest         = false;
 }
 
 function rebuildLayoutFromNodes(nodes: ConversationNode[]): void {
   resetLayout();
-  // Sorted by domIndex; ghost nodes have domIndex=-1 so they come first
-  const sorted = [...nodes].sort((a, b) => a.domIndex - b.domIndex);
+  // Every real node (including branches) is the parent of the next node in sequence.
+  // Ghosts (domIndex=-1) are decorative — skip them.
+  const sorted = [...nodes]
+    .filter((n) => !n.isGhost)
+    .sort((a, b) => a.domIndex - b.domIndex);
   for (const n of sorted) {
-    if (n.isRoot) {
-      mainBranchCurrentId = n.id;
-    } else if (n.isGhost) {
-      mainBranchCurrentId = n.id; // ghost is the left-child placeholder
-    } else if (n.isSideQuest) {
-      if (!inSideQuest) inSideQuest = true;
-      sideQuestCurrentId = n.id;
-    } else {
-      if (inSideQuest) { inSideQuest = false; sideQuestCurrentId = null; }
-      mainBranchCurrentId = n.id;
-    }
+    mainBranchCurrentId = n.id;
   }
 }
 
@@ -101,8 +89,18 @@ function requestEmbedding(text: string, id: string): Promise<number[]> {
   });
 }
 
+function clearAllButtons(): void {
+  // Remove all injected bar siblings
+  document.querySelectorAll("[data-branchbarber-bar]").forEach((bar) => bar.remove());
+  // Clear injection markers so buttons can be re-injected for the new tree
+  document.querySelectorAll("[data-branchbarber-injected]").forEach((el) => {
+    delete (el as HTMLElement).dataset.branchbarberInjected;
+  });
+}
+
 async function initConversation(): Promise<void> {
   const url = getConversationUrl();
+  clearAllButtons();
   useBranchStore.getState().clearConversation();
 
   const [existing, settings] = await Promise.all([
@@ -124,6 +122,9 @@ async function initConversation(): Promise<void> {
     useBranchStore.getState().loadNodes(nodes);
     processedCount = nodes.filter((n) => !n.isGhost).length;
     rebuildLayoutFromNodes(nodes);
+    // Inject buttons after DOM is ready, then keep checking in case Angular re-renders wipe them
+    setTimeout(reinjectButtons, 500);
+    setTimeout(reinjectButtons, 2000);
   } else {
     conversationId = generateId();
     const meta: ConversationMeta = {
@@ -159,63 +160,80 @@ function startMutationObserver(): void {
   urlObserver.observe(document.body, { childList: true, subtree: true });
 }
 
+let isScanning = false;
 const handleMutations = (): void => { scanAndProcessTurns(); };
 
 async function scanAndProcessTurns(): Promise<void> {
   if (!isContextValid()) return;
-  const userTurns = getUserTurns(platform);
-  const aiTurns   = getAITurns(platform);
-  const pairCount = Math.min(userTurns.length, aiTurns.length);
-  if (pairCount <= processedCount) return;
+  if (isScanning) return;
+  isScanning = true;
+  try {
+    await _doScan();
+  } finally {
+    isScanning = false;
+  }
+}
 
-  const store    = useBranchStore.getState();
+async function _doScan(): Promise<void> {
   const settings = await getOrCreateSettings();
 
+  // Re-query DOM fresh at the start of each scan
+  let userTurns = getUserTurns(platform);
+  let aiTurns   = getAITurns(platform);
+  let pairCount = Math.min(userTurns.length, aiTurns.length);
+  if (pairCount <= processedCount) return;
+
+  const SHIFT_KEYWORDS = [
+    '另外','换个话题','换个问题','对了','顺便问','顺便说',
+    'by the way','btw','anyway','separate question','separate issue',
+    'different topic','change of topic','unrelated',
+  ];
+
   for (let i = processedCount; i < pairCount; i++) {
+    // Re-query DOM each iteration — Angular may re-render between awaits
+    userTurns = getUserTurns(platform);
+    aiTurns   = getAITurns(platform);
+    pairCount = Math.min(userTurns.length, aiTurns.length);
+    if (i >= pairCount) break;
+
     const prompt   = extractText(userTurns[i]);
     const response = extractText(aiTurns[i]);
-    if (!prompt || !response) continue;
+    if (!prompt || !response) {
+      // AI still streaming — stop here, mutation observer will trigger again when done
+      break;
+    }
 
-    const nodeId = generateId();
-    const isRoot = i === 0 && store.rootNodeId === null;
-
-    // ── Drift detection ───────────────────────────────────────────────────────
-    const SHIFT_KEYWORDS = [
-      '另外','换个话题','换个问题','对了','顺便问','顺便说',
-      'by the way','btw','anyway','separate question','separate issue',
-      'different topic','change of topic','unrelated',
-    ];
+    const nodeId  = generateId();
+    const isRoot  = i === 0 && useBranchStore.getState().rootNodeId === null;
     const keywordShift = SHIFT_KEYWORDS.some((k) => prompt.toLowerCase().includes(k));
 
-    let driftScore = 0;
-    let embedding: number[] = [];
     const textForEmbedding = `${prompt} ${response}`.slice(0, 512);
-    const parentNodeId = !isRoot ? (inSideQuest ? sideQuestCurrentId : mainBranchCurrentId) : null;
+    const parentNodeId = !isRoot ? mainBranchCurrentId : null;
 
-    // Fetch embedding + parent node in parallel
-    const [emb, parentDbNode] = await Promise.all([
-      requestEmbedding(textForEmbedding, nodeId),
-      parentNodeId ? db.nodes.get(parentNodeId) : Promise.resolve(null),
-    ]);
-    embedding = emb;
-
-    if (!isRoot && parentDbNode) {
-      if (embedding.length > 0 && parentDbNode.embedding && parentDbNode.embedding.length > 0) {
-        driftScore = 1 - cosineSimilarity(embedding, parentDbNode.embedding);
-      } else {
+    // Lexical drift — instant, no await needed
+    let driftScore = 0;
+    if (!isRoot && parentNodeId) {
+      const parentDbNode = await db.nodes.get(parentNodeId);
+      if (parentDbNode) {
         const parentText = `${parentDbNode.prompt} ${parentDbNode.response}`;
         if (parentText) driftScore = lexicalDrift(textForEmbedding, parentText.slice(0, 512));
       }
     }
 
-    const threshold   = 1 - settings.driftThreshold;
-    const isSideQuest = settings.autoDetectBranches && (keywordShift || driftScore > threshold);
+    // Fire embedding in background — updates DB when it arrives, doesn't block node creation
+    requestEmbedding(textForEmbedding, nodeId).then((emb) => {
+      if (emb.length === 0) return;
+      db.nodes.update(nodeId, { embedding: emb });
+      if (!isRoot && parentNodeId) {
+        db.nodes.get(parentNodeId).then((p) => {
+          if (!p?.embedding?.length) return;
+          const newDrift = 1 - cosineSimilarity(emb, p.embedding!);
+          db.nodes.update(nodeId, { driftScore: newDrift });
+        });
+      }
+    });
 
-    // ── Position + parentId (parent-relative layout) ──────────────────────────
-    // The tree is a binary-ish structure:
-    //   Left child  (no drift)  = (parentX,         parentY + NODE_H)
-    //   Right child (drift)     = (parentX + NODE_W, parentY + NODE_H)
-    // When drift is detected, a ghost left-child placeholder is also created.
+    const isSideQuest = settings.autoDetectBranches && (keywordShift || driftScore > settings.driftThreshold);
 
     let parentId: string | null;
     let position: { x: number; y: number };
@@ -226,15 +244,13 @@ async function scanAndProcessTurns(): Promise<void> {
       position            = { x: 0, y: 0 };
       depth               = 0;
       mainBranchCurrentId = nodeId;
-      inSideQuest         = false;
 
-    } else if (isSideQuest && !inSideQuest) {
-      // ── Branch begins ─────────────────────────────────────────────────────
-      // Branch from the current main-branch tip
-      const branchFromId  = mainBranchCurrentId;
-      const bp            = parentPos(branchFromId);
+    } else if (isSideQuest) {
+      // Drift detected: new node goes RIGHT, ghost placeholder goes LEFT (both children of parent)
+      const branchFromId = mainBranchCurrentId;
+      const bp           = parentPos(branchFromId);
 
-      // Left-child ghost (placeholder for main continuation)
+      // Ghost = left child (marks where main thread would have continued)
       const ghostId    = generateId();
       const ghostLabel = "Continue main thread here";
       const ghostNode: ConversationNode = {
@@ -245,60 +261,44 @@ async function scanAndProcessTurns(): Promise<void> {
         isBranch: false, isRoot: false, isSideQuest: false, isGhost: true,
         domIndex: -1, createdAt: Date.now(),
         depth: Math.round(bp.y / NODE_H) + 1,
-        position: { x: bp.x, y: bp.y + NODE_H },      // left child
+        position: { x: bp.x, y: bp.y + NODE_H },
       };
       await upsertNode(ghostNode);
-      store.addNode(ghostNode);
+      useBranchStore.getState().addNode(ghostNode);
 
-      // Async: fill ghost label by summarising the direct parent node
       if ((settings.summaryMode ?? "local") === "gemini" && settings.geminiApiKey && branchFromId) {
         db.nodes.get(branchFromId).then((n) => {
           if (!n) return;
-          const ctx = `${n.prompt}\n\n${n.response}`.slice(0, 600);
-          inferGhostTopic(ctx, settings.geminiApiKey).then((label) => {
+          inferGhostTopic(`${n.prompt}\n\n${n.response}`.slice(0, 600), settings.geminiApiKey).then((label) => {
             db.nodes.update(ghostId, { label, summary: label });
             useBranchStore.getState().updateNodeLabel(ghostId, label);
           });
         });
       }
 
-      // Main branch pointer advances to ghost so future normal nodes hang off it
-      mainBranchCurrentId = ghostId;
-
-      // Right child = side quest node
-      parentId           = branchFromId;             // same parent as ghost
-      position           = { x: bp.x + NODE_W, y: bp.y + NODE_H };  // right child
-      depth              = Math.round(bp.y / NODE_H) + 1;
-      inSideQuest        = true;
-      sideQuestCurrentId = nodeId;
-
-    } else if (isSideQuest && inSideQuest) {
-      // ── Continue down the side quest ──────────────────────────────────────
-      const sqp    = parentPos(sideQuestCurrentId);
-      parentId     = sideQuestCurrentId;
-      position     = { x: sqp.x, y: sqp.y + NODE_H };  // left child of side-quest tip
-      depth        = Math.round(sqp.y / NODE_H) + 1;
-      sideQuestCurrentId = nodeId;
+      // New node = right child; it becomes the new main-thread tip (tree keeps going right)
+      parentId            = branchFromId;
+      position            = { x: bp.x + NODE_W, y: bp.y + NODE_H };
+      depth               = Math.round(bp.y / NODE_H) + 1;
+      mainBranchCurrentId = nodeId;
 
     } else {
-      // ── Normal main-branch continuation ───────────────────────────────────
-      if (inSideQuest) { inSideQuest = false; sideQuestCurrentId = null; }
-      const mp    = parentPos(mainBranchCurrentId);
-      parentId    = mainBranchCurrentId;
-      position    = { x: mp.x, y: mp.y + NODE_H };   // left child of main tip
-      depth       = Math.round(mp.y / NODE_H) + 1;
+      // No drift: straight down
+      const mp            = parentPos(mainBranchCurrentId);
+      parentId            = mainBranchCurrentId;
+      position            = { x: mp.x, y: mp.y + NODE_H };
+      depth               = Math.round(mp.y / NODE_H) + 1;
       mainBranchCurrentId = nodeId;
     }
 
-    // Use local label immediately so the node appears without waiting for Gemini
     const fallbackLabel = prompt.slice(0, 60) + (prompt.length > 60 ? "..." : "");
-    const useGemini = (settings.summaryMode ?? "local") === "gemini" && !!settings.geminiApiKey;
+    const useGemini     = (settings.summaryMode ?? "local") === "gemini" && !!settings.geminiApiKey;
 
     const node: ConversationNode = {
       id: nodeId, conversationId,
       parentId: isRoot ? null : parentId,
-      prompt, response, summary: fallbackLabel, embedding,
-      driftScore, isBranch: false, isRoot, isSideQuest,
+      prompt, response, summary: fallbackLabel, embedding: [],
+      driftScore, isBranch: isSideQuest, isRoot, isSideQuest,
       domIndex: i, createdAt: Date.now(),
       label: fallbackLabel,
       depth, position,
@@ -307,14 +307,12 @@ async function scanAndProcessTurns(): Promise<void> {
     await upsertNode(node);
     upsertConversation({
       id: conversationId, url: getConversationUrl(), title: getConversationTitle(),
-      rootNodeId: isRoot ? nodeId : store.rootNodeId,
+      rootNodeId: isRoot ? nodeId : useBranchStore.getState().rootNodeId,
       currentNodeId: nodeId, createdAt: Date.now(), updatedAt: Date.now(),
     });
 
-    store.addNode(node);
-    if (isSideQuest) store.setDriftAlert({ nodeId, score: driftScore });
+    useBranchStore.getState().addNode(node);
 
-    // Async: upgrade label with Gemini summary (non-blocking)
     if (useGemini) {
       summarizeWithGemini(prompt, response, settings.geminiApiKey).then((summary) => {
         if (summary && summary !== fallbackLabel) {
@@ -327,32 +325,81 @@ async function scanAndProcessTurns(): Promise<void> {
     injectBranchButton(aiTurns[i], nodeId);
     processedCount = i + 1;
   }
+
+  setTimeout(reinjectButtons, 300);
 }
 
-function injectBranchButton(aiElement: Element, nodeId: string): void {
-  if (aiElement.querySelector("[data-branchbarber-btn]")) return;
-  const btn = document.createElement("button");
-  btn.dataset.branchbarberBtn = nodeId;
-  btn.style.cssText = `
-    display:inline-flex;align-items:center;gap:4px;margin-top:6px;
-    padding:4px 10px;font-size:11px;font-weight:600;
-    color:#7c3aed;background:rgba(124,58,237,0.08);
-    border:1px solid rgba(124,58,237,0.3);border-radius:6px;
-    cursor:pointer;font-family:inherit;position:relative;z-index:9999;
-  `;
-  btn.textContent = "✂ Branch Here";
-  btn.addEventListener("click", () => {
-    useBranchStore.getState().markAsBranch(nodeId);
-    db.nodes.update(nodeId, { isBranch: true });
+function setButtonState(btn: HTMLButtonElement, branched: boolean): void {
+  if (branched) {
     btn.textContent = "✓ Branched";
     btn.style.color = "#16a34a";
     btn.style.borderColor = "rgba(22,163,74,0.4)";
     btn.style.background = "rgba(22,163,74,0.08)";
+  } else {
+    btn.textContent = "✂ Branch Here";
+    btn.style.color = "#7c3aed";
+    btn.style.borderColor = "rgba(124,58,237,0.3)";
+    btn.style.background = "rgba(124,58,237,0.08)";
+  }
+}
+
+function injectBranchButton(aiElement: Element, nodeId: string, initiallyBranched = false): void {
+  // Use a marker on the element itself — appending inside Angular components gets wiped on re-render
+  if ((aiElement as HTMLElement).dataset.branchbarberInjected) return;
+  (aiElement as HTMLElement).dataset.branchbarberInjected = "true";
+
+  const btn = document.createElement("button");
+  btn.dataset.branchbarberBtn = nodeId;
+  btn.style.cssText = `
+    display:inline-flex;align-items:center;gap:4px;
+    padding:4px 10px;font-size:11px;font-weight:600;
+    border:1px solid transparent;border-radius:6px;
+    cursor:pointer;font-family:inherit;position:relative;z-index:9999;
+  `;
+  let branched = initiallyBranched;
+  setButtonState(btn, branched);
+  btn.addEventListener("click", () => {
+    branched = !branched;
+    if (branched) {
+      useBranchStore.getState().markAsBranch(nodeId);
+      db.nodes.update(nodeId, { isBranch: true });
+    } else {
+      useBranchStore.getState().unmarkBranch(nodeId);
+      db.nodes.update(nodeId, { isBranch: false });
+    }
+    setButtonState(btn, branched);
   });
   const bar = document.createElement("div");
-  bar.style.cssText = "display:flex;padding:4px 0;margin-top:2px;";
+  bar.dataset.branchbarberBar = nodeId;
+  bar.style.cssText = "display:block;width:100%;padding:4px 0;margin-top:2px;";
   bar.appendChild(btn);
-  aiElement.appendChild(bar);
+  // Insert AFTER the AI element (as sibling) so Angular re-renders don't wipe it
+  aiElement.insertAdjacentElement("afterend", bar);
+}
+
+// Called after loading an existing conversation — reinject buttons for all turns.
+// Also called periodically to catch turns that were missed (e.g. Angular re-render wiped the marker).
+function reinjectButtons(): void {
+  const aiTurns = getAITurns(platform);
+  const nodes = useBranchStore.getState().nodes;
+  // Build domIndex → nodeId map
+  const byDomIndex = new Map<number, string>();
+  for (const n of Object.values(nodes)) {
+    if (n.status !== "ghost" && n.domIndex >= 0) byDomIndex.set(n.domIndex, n.id);
+  }
+  aiTurns.forEach((el, i) => {
+    const nodeId = byDomIndex.get(i);
+    if (!nodeId) return;
+    // If marker was wiped by Angular re-render, remove the stale sibling bar and re-inject
+    if ((el as HTMLElement).dataset.branchbarberInjected) {
+      const staleBar = el.nextElementSibling;
+      if (staleBar && (staleBar as HTMLElement).dataset.branchbarberBar === nodeId) return; // still intact
+      // marker set but bar is gone — reset and re-inject
+      delete (el as HTMLElement).dataset.branchbarberInjected;
+    }
+    const node = nodes[nodeId];
+    injectBranchButton(el, nodeId, node?.status === "side-quest");
+  });
 }
 
 export function destroyObserver(): void {

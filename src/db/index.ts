@@ -63,7 +63,7 @@ export async function getOrCreateSettings(): Promise<AppSettings> {
   const defaults: AppSettings = {
     id: "default",
     geminiApiKey: "",
-    driftThreshold: 0.6,
+    driftThreshold: 0.75,
     autoDetectBranches: true,
     showSidebar: true,
     sidebarPosition: "right",

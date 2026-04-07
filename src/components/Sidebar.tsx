@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useBranchStore } from "../store";
 import { ConversationTree } from "./ConversationTree";
 import { NodeDetail } from "./NodeDetail";
-import { DriftAlert } from "./DriftAlert";
 import { SettingsPanel } from "./SettingsPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { C, branchColor } from "./theme";
@@ -28,7 +27,6 @@ export function Sidebar() {
 
   const nodes        = useBranchStore((s) => s.nodes);
   const nodeCount    = Object.keys(nodes).length;
-  const driftAlert   = useBranchStore((s) => s.driftAlert);
   const selectedId   = useBranchStore((s) => s.selectedNodeId);
   const isProcessing = useBranchStore((s) => s.isProcessing);
 
@@ -41,9 +39,7 @@ export function Sidebar() {
       items.push({ color: C.mauve, label: "Root" });
     if (vals.some((n) => n.status === "normal"))
       items.push({ color: C.surface2, label: "Main Thread" });
-    if (vals.some((n) => n.status === "pending"))
-      items.push({ color: C.peach, label: "Side Quest?" });
-    // One entry per unique branch column, with its actual color
+// One entry per unique branch column, with its actual color
     const branchCols = [...new Set(
       vals.filter((n) => n.status === "side-quest")
           .map((n) => Math.round(n.position.x / NODE_W))
@@ -205,8 +201,7 @@ export function Sidebar() {
         {/* Body */}
         {tab === "tree" ? (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0, overflow: "hidden" }}>
-            {driftAlert && <div style={{ padding: "8px 12px 0", flexShrink: 0 }}><DriftAlert /></div>}
-            {selectedId  && <div style={{ padding: "8px 12px 0", flexShrink: 0 }}><NodeDetail /></div>}
+{selectedId  && <div style={{ padding: "8px 12px 0", flexShrink: 0 }}><NodeDetail /></div>}
             <div style={{ flex: 1, minHeight: 0 }}>
               <ErrorBoundary><ConversationTree /></ErrorBoundary>
             </div>

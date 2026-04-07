@@ -34,7 +34,7 @@ function treeNodeToDbNode(n: TreeNode, conversationId: string): ConversationNode
     embedding: null, driftScore: n.driftScore,
     isBranch: n.status === "side-quest",
     isRoot: n.status === "root",
-    isSideQuest: n.status === "pending" || n.status === "side-quest",
+    isSideQuest: n.status === "side-quest",
     isGhost: n.status === "ghost",
     domIndex: n.domIndex, createdAt: Date.now(),
     depth: n.depth, position: n.position,
@@ -52,20 +52,18 @@ function buildFlowElements(
     nodes.push({ id, type: "treeNode", position: n.position, data: n, selected: id === selectedId });
 
     if (n.parentId) {
-      const edgeColor = n.status === "ghost"    ? C.surface1
-                      : n.status === "pending"  ? C.peach
-                      : branchColor(n.position.x);
+      const edgeColor = n.status === "ghost" ? C.surface1 : branchColor(n.position.x);
       edges.push({
         id: `e-${n.parentId}-${id}`,
         source: n.parentId,
         target: id,
         type: "smoothstep",
-        animated: n.status === "pending",
+        animated: false,
         markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor },
         style: {
           stroke: edgeColor,
           strokeWidth: 1.5,
-          strokeDasharray: n.status === "ghost" || n.status === "pending" ? "4 3" : undefined,
+          strokeDasharray: n.status === "ghost" ? "4 3" : undefined,
           opacity: n.status === "ghost" ? 0.5 : 1,
         },
       });
@@ -155,7 +153,7 @@ export function ConversationTree() {
           parentId: n.parentId,
           position: n.position,
           isBranch: n.status === "side-quest",
-          isSideQuest: n.status === "pending" || n.status === "side-quest",
+          isSideQuest: n.status === "side-quest",
           isGhost: n.status === "ghost",
         });
       }
