@@ -66,10 +66,10 @@ interface BranchBarberState {
 
 function dbNodeToTreeNode(node: ConversationNode): TreeNode {
   let status: NodeStatus = "normal";
-  if (node.isGhost)          status = "ghost";
-  else if (node.isRoot)      status = "root";
-  else if (node.isBranch)    status = "side-quest";   // user confirmed → takes column color
-  else if (node.isSideQuest) status = "pending";      // auto-detected, not yet confirmed (orange)
+  if (node.isGhost)                       status = "ghost";
+  else if (node.isRoot)                   status = "root";
+  else if (node.isBranch || node.isSideQuest) status = "side-quest";
+  else                                    status = "normal";
   return {
     id: node.id, label: node.label,
     prompt: node.prompt, response: node.response, summary: node.summary,

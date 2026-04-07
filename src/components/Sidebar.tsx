@@ -9,7 +9,7 @@ import { C, branchColor } from "./theme";
 export { C };
 
 const MIN_W = 280;
-const MAX_W = 700;
+const MAX_W = 1200;
 const DEFAULT_W = 340;
 const NODE_W = 240;
 

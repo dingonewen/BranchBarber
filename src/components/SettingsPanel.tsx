@@ -85,6 +85,12 @@ export function SettingsPanel() {
       const updates = { geminiApiKey: apiKey, driftThreshold: threshold, autoDetectBranches: autoDetect, summaryMode };
       await saveSettings(updates);
       setSettings(updates);
+
+      // If "Auto-scale Overall Drift Threshold" is ON, re-layout tree immediately
+      if (autoDetect) {
+        window.dispatchEvent(new CustomEvent("bb-rescale", { detail: { threshold } }));
+      }
+
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (e) {
@@ -171,24 +177,24 @@ export function SettingsPanel() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
           <Toggle on={autoDetect} onToggle={() => setAutoDetect((v) => !v)} />
-          <span style={{ fontSize: 11, color: C.text }}>Auto-detect side quests</span>
-          <Tooltip text="When enabled, BranchBarber automatically flags turns that drift significantly from the previous topic as a Side Quest." />
+          <span style={{ fontSize: 11, color: C.text }}>Auto-scale Overall Drift Threshold</span>
+          <Tooltip text="ON: moving the slider instantly re-evaluates all existing nodes in the current tree and re-branches them at the new threshold. OFF: the slider only affects nodes added from now on." />
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
             <span style={{ fontSize: 11, color: C.subtext0 }}>Drift Threshold</span>
-            <Tooltip text="How much topic change triggers a branch. Lower = more sensitive (flags small shifts). Higher = more relaxed (only flags big jumps)." />
+            <Tooltip text="How different a new message must be from the previous one to trigger an automatic branch. 80% means only large topic shifts branch. Lower values branch more often." />
           </div>
           <span style={{ fontSize: 11, fontWeight: 700, color: C.mauve }}>{Math.round(threshold * 100)}%</span>
         </div>
         <input
-          type="range" min="0.3" max="0.9" step="0.05" value={threshold}
+          type="range" min="0.3" max="0.95" step="0.05" value={threshold}
           onChange={(e) => setThreshold(parseFloat(e.target.value))}
           style={{ width: "100%", accentColor: C.mauve }}
         />
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: C.overlay1, marginTop: 2 }}>
-          <span>Sensitive</span><span>Relaxed</span>
+          <span>Branch more</span><span>Branch less</span>
         </div>
       </div>
 

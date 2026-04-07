@@ -36,6 +36,7 @@ const NODE_H = 130;
 let mainBranchCurrentId: string | null = null;
 function resetLayout(): void {
   mainBranchCurrentId = null;
+  isScanning = false;
 }
 
 function rebuildLayoutFromNodes(nodes: ConversationNode[]): void {
@@ -183,11 +184,10 @@ async function _doScan(): Promise<void> {
   let pairCount = Math.min(userTurns.length, aiTurns.length);
   if (pairCount <= processedCount) return;
 
-  const SHIFT_KEYWORDS = [
-    '另外','换个话题','换个问题','对了','顺便问','顺便说',
-    'by the way','btw','anyway','separate question','separate issue',
-    'different topic','change of topic','unrelated',
-  ];
+  // Freeze the initial new-turn count before the loop re-queries DOM.
+  // isLiveTurn = user just sent one message (not batch-loading history).
+  const initialNewCount = pairCount - processedCount;
+  const isLiveTurn = initialNewCount === 1;
 
   for (let i = processedCount; i < pairCount; i++) {
     // Re-query DOM each iteration — Angular may re-render between awaits
@@ -205,7 +205,6 @@ async function _doScan(): Promise<void> {
 
     const nodeId  = generateId();
     const isRoot  = i === 0 && useBranchStore.getState().rootNodeId === null;
-    const keywordShift = SHIFT_KEYWORDS.some((k) => prompt.toLowerCase().includes(k));
 
     const textForEmbedding = `${prompt} ${response}`.slice(0, 512);
     const parentNodeId = !isRoot ? mainBranchCurrentId : null;
@@ -233,7 +232,7 @@ async function _doScan(): Promise<void> {
       }
     });
 
-    const isSideQuest = settings.autoDetectBranches && (keywordShift || driftScore > settings.driftThreshold);
+    const isSideQuest = driftScore > settings.driftThreshold;
 
     let parentId: string | null;
     let position: { x: number; y: number };
@@ -266,7 +265,7 @@ async function _doScan(): Promise<void> {
       await upsertNode(ghostNode);
       useBranchStore.getState().addNode(ghostNode);
 
-      if ((settings.summaryMode ?? "local") === "gemini" && settings.geminiApiKey && branchFromId) {
+      if (isLiveTurn && (settings.summaryMode ?? "local") === "gemini" && settings.geminiApiKey && branchFromId) {
         db.nodes.get(branchFromId).then((n) => {
           if (!n) return;
           inferGhostTopic(`${n.prompt}\n\n${n.response}`.slice(0, 600), settings.geminiApiKey).then((label) => {
@@ -313,7 +312,7 @@ async function _doScan(): Promise<void> {
 
     useBranchStore.getState().addNode(node);
 
-    if (useGemini) {
+    if (useGemini && isLiveTurn) {
       summarizeWithGemini(prompt, response, settings.geminiApiKey).then((summary) => {
         if (summary && summary !== fallbackLabel) {
           db.nodes.update(nodeId, { label: summary, summary });
@@ -404,4 +403,82 @@ function reinjectButtons(): void {
 
 export function destroyObserver(): void {
   mutationObserver?.disconnect();
+}
+
+// Re-runs the full layout algorithm on all stored nodes using a new threshold.
+// Called when user saves settings with "Auto-scale Overall Drift Threshold" ON.
+export async function rescaleLayout(newThreshold: number): Promise<void> {
+  if (!conversationId) return;
+  const allNodes = await getConversationNodes(conversationId);
+  const real = allNodes
+    .filter((n) => !n.isGhost)
+    .sort((a, b) => a.domIndex - b.domIndex);
+
+  // Remove all ghost nodes from store and DB — we'll recreate them
+  for (const n of allNodes) {
+    if (n.isGhost) {
+      useBranchStore.getState().removeNode(n.id);
+      await db.nodes.delete(n.id);
+    }
+  }
+
+  // Re-run layout from scratch
+  let curId: string | null = null;
+  let curPos = { x: 0, y: -NODE_H };
+
+  for (const n of real) {
+    const isRoot = n.isRoot;
+    const isSideQuest = !isRoot && n.driftScore > newThreshold;
+
+    let position: { x: number; y: number };
+    let parentId: string | null;
+
+    if (isRoot) {
+      position = { x: 0, y: 0 };
+      parentId = null;
+      curId  = n.id;
+      curPos = position;
+    } else if (isSideQuest) {
+      // Ghost left child
+      const ghostId    = generateId();
+      const ghostLabel = "Continue main thread here";
+      const ghostNode: ConversationNode = {
+        id: ghostId, conversationId,
+        parentId: curId,
+        prompt: "", response: "", summary: ghostLabel, label: ghostLabel,
+        embedding: null, driftScore: 0,
+        isBranch: false, isRoot: false, isSideQuest: false, isGhost: true,
+        domIndex: -1, createdAt: Date.now(),
+        depth: Math.round((curPos.y + NODE_H) / NODE_H),
+        position: { x: curPos.x, y: curPos.y + NODE_H },
+      };
+      await upsertNode(ghostNode);
+      useBranchStore.getState().addNode(ghostNode);
+
+      // Branch node = right child
+      position = { x: curPos.x + NODE_W, y: curPos.y + NODE_H };
+      parentId = curId;
+      curId  = n.id;
+      curPos = position;
+    } else {
+      position = { x: curPos.x, y: curPos.y + NODE_H };
+      parentId = curId;
+      curId  = n.id;
+      curPos = position;
+    }
+
+    const depth = Math.round(position.y / NODE_H);
+    const updated: ConversationNode = {
+      ...n,
+      parentId: isRoot ? null : parentId,
+      isBranch: isSideQuest,
+      isSideQuest,
+      position,
+      depth,
+    };
+    await upsertNode(updated);
+    useBranchStore.getState().addNode(updated);
+  }
+
+  useBranchStore.getState().bumpLayoutKey();
 }
