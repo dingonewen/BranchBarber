@@ -103,7 +103,7 @@ export function Sidebar() {
       {/* ── Toggle tab — sticks to left edge of the whole wrapper ── */}
       <div
         onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setOpen((v) => !v); }}
-        title={open ? "Close panel" : "Open BranchBarber"}
+        title={open ? "Close panel" : "Open Branch Barber"}
         style={{
           pointerEvents: "auto",
           position: "absolute", left: 0, top: "50%",
@@ -162,7 +162,7 @@ export function Sidebar() {
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontWeight: 700, fontSize: 13, color: C.text, letterSpacing: "-0.01em" }}>
-                BranchBarber
+                Branch Barber
               </span>
               {isProcessing && (
                 <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.mauve, display: "inline-block" }} />

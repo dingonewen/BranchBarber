@@ -88,8 +88,8 @@ export function PopupApp() {
       <div style={S.header}>
         <img src={safeGetURL("icons/icon48.png")} style={{ width: 28, height: 28, objectFit: "contain" }} />
         <div>
-          <div style={S.title}>BranchBarber</div>
-          <div style={S.sub}>Conversation Tree Extension</div>
+          <div style={S.title}>Branch Barber</div>
+          <div style={S.sub}>Conversation Tree</div>
         </div>
       </div>
 

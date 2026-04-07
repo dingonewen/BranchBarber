@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "BranchBarber",
+  "name": "Branch Barber",
   "version": "1.0.0",
   "description": "Visual conversation tree for ChatGPT and Gemini - track context drift and navigate your thinking.",
   "permissions": [

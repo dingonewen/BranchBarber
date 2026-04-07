@@ -228,13 +228,26 @@ export function ConversationTree() {
       }}>
         <img src={safeGetURL("icons/icon128.png")} style={{ width: 48, height: 48, objectFit: "contain", opacity: 0.5 }} />
         <p style={{ fontWeight: 600, color: C.subtext0, margin: 0 }}>No conversation yet</p>
-        <p style={{ margin: 0 }}>Start chatting and BranchBarber will map your tree.</p>
+        <p style={{ margin: 0 }}>Start chatting and Branch Barber will map your tree.</p>
       </div>
     );
   }
 
   return (
-    <div style={{ width: "100%", height: "100%" }}>
+    <div style={{ width: "100%", height: "100%", position: "relative" }}>
+      <img
+        src={safeGetURL("icons/dizzy.png")}
+        style={{
+          position: "absolute", top: "50%", left: "50%",
+          transform: "translate(-50%, -50%)",
+          width: 320, height: 320,
+          objectFit: "contain",
+          opacity: 0.06,
+          pointerEvents: "none",
+          userSelect: "none",
+          zIndex: 0,
+        }}
+      />
       <ReactFlow
         nodes={nodes}
         edges={edges}

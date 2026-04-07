@@ -1,14 +1,18 @@
-# BranchBarber
+# Branch Barber
 
 <p align="center">
-  <img src="public/icons/source.png" width="120" alt="BranchBarber" />
+  <img src="public/icons/source.png" width="120" alt="Branch Barber" />
 </p>
 
 > **Stop shaving the yak. Start climbing the tree.**
 
-BranchBarber is a Chrome Extension that transforms linear AI chat logs into a live, interactive **Conversation Tree**. It automatically detects when your conversation drifts to a new topic, visualizes that drift as a branch in a node graph, and gives you precise tools to navigate, reorganize, and annotate your thinking in real time.
+**Branch Barber** is a Chrome Extension that transforms linear AI chat logs into a live, interactive **Conversation Tree**. It automatically detects when your conversation drifts to a new topic, visualizes that drift as a branch in a node graph, and gives you precise tools to navigate, reorganize, and annotate your thinking in real time.
 
 Supported platforms: **ChatGPT** (chatgpt.com, chat.openai.com) and **Google Gemini** (gemini.google.com).
+
+<p align="center">
+  <img src="public/screenshot4.jpg" width="720" alt="Branch Barber screenshot" />
+</p>
 
 ---
 
@@ -23,7 +27,7 @@ Root:         Build an ML model
             └─ Now: Researching Linux kernel flags
 ```
 
-By the time you answer the tenth side question, you've forgotten why you opened the chat. BranchBarber maps exactly this kind of drift, labels each diversion, and lets you jump back to any point in the tree without losing work.
+By the time you answer the tenth side question, you've forgotten why you opened the chat. Branch Barber maps exactly this kind of drift, labels each diversion, and lets you jump back to any point in the tree without losing work.
 
 ---
 
@@ -48,211 +52,11 @@ npm run dev        # Webpack in watch mode
 2. Enable **Developer mode** (toggle in the top-right corner)
 3. Click **Load unpacked** and select the `dist/` folder
 4. Navigate to `chatgpt.com` or `gemini.google.com`
-5. BranchBarber automatically activates and the sidebar appears on the right side of the page
+5. Branch Barber automatically activates — the sidebar appears on the right side of the page
 
 ### Reload After Changes
 
-After rebuilding, go to `chrome://extensions/` and click the ↺ refresh icon on the BranchBarber card. Then hard-reload the AI chat tab (`Ctrl+Shift+R`).
-
----
-
-## The Popup
-
-Click the BranchBarber icon in the Chrome toolbar to open the popup.
-
-**Open Saved Tree** — opens the sidebar for the current tab, restoring the last saved tree for that conversation URL.
-
-**New Tree** — wipes all stored nodes for the current conversation and starts a fresh tree. Use this when you start a genuinely new session and don't want the old tree to interfere. The sidebar opens automatically after the reset.
-
-The status dot in the popup shows whether BranchBarber is active on the current tab (green), loading (amber), or idle/unsupported (grey).
-
----
-
-## The Sidebar
-
-The sidebar slides in from the right edge of the page and can be toggled with the `‹ ›` tab that sticks to its left edge at all times.
-
-**Resizing the sidebar** — drag the thin strip at the very left edge of the sidebar panel left or right. The sidebar respects a minimum width of 280 px and a maximum of 700 px.
-
-**Tabs**
-
-- **Tree View** — the main node graph canvas
-- **Settings** — Gemini API key and drift detection configuration
-
-**Header indicators**
-
-- The node count below the title updates in real time as new turns are processed.
-- A small purple dot next to the title pulses while a turn is being processed.
-
-**Legend strip** at the bottom of the Tree View identifies node colors: Root (purple), Branch (column-colored), Side Quest (orange), Normal (grey).
-
----
-
-## How the Tree Is Built
-
-Every time you send a message and receive a reply, BranchBarber captures that prompt/response pair and adds a node to the tree. Processing happens automatically — you never need to trigger it manually.
-
-**Pairs are processed in order** (`domIndex` 0, 1, 2, …). The first pair in a conversation always becomes the **Root** node.
-
-**Parent-relative layout**: each new node is placed directly below its parent on the canvas. When a branch is detected, the new node shifts one column to the right, and a ghost placeholder occupies the left-child slot to show where the main thread would have continued.
-
-**Node positions are persisted** in IndexedDB so the tree layout survives page reloads and tab switches.
-
----
-
-## Drift Detection
-
-BranchBarber uses a two-layer approach to measure how much a new turn has drifted from the previous one:
-
-### Layer 1 — Keyword Detection
-
-Before any computation, the prompt is checked for explicit shift signals:
-
-- English: `by the way`, `btw`, `anyway`, `separate question`, `separate issue`, `different topic`, `change of topic`, `unrelated`
-- Mandarin Chinese: topic-transition discourse markers equivalent to "by the way", "on a different note", "while I'm at it", and "separate question"
-- Additional languages can be added by extending the `SHIFT_KEYWORDS` array in `src/content/observer.ts`
-
-If any of these phrases are detected, the turn is immediately flagged as a side quest regardless of semantic similarity.
-
-### Layer 2 — Semantic Embedding (primary)
-
-Each turn's combined prompt + response text (up to 512 characters) is embedded using **`all-MiniLM-L6-v2`** running entirely in-browser via Transformers.js on a WASM backend in an offscreen document. The embedding is computed asynchronously and never leaves your browser.
-
-The drift score is `1 − cosine_similarity(current_embedding, parent_embedding)`. A score of `0` means the topics are identical; a score of `1` means completely unrelated.
-
-### Layer 3 — Lexical TF-IDF (fallback)
-
-If the embedding model hasn't finished loading yet (it pre-warms on extension startup but takes a few seconds the first time), a lightweight TF-IDF cosine similarity is computed directly over tokenized word frequencies — no ML required. Stopwords are filtered out. The same 0–1 drift scale is used.
-
-### Threshold
-
-The drift score is compared against `1 − driftThreshold` (configurable in Settings, default 60%). If the score exceeds the threshold, the turn is auto-flagged as a **Side Quest** (orange, pending user confirmation).
-
-The console logs each turn's drift details:
-```
-[BB] Turn 3 embedding drift: 0.712
-[BB] Turn 3: keyword=false drift=0.712 thr=0.40 → branch=true
-```
-
----
-
-## Node Types
-
-| Badge label | Color | Meaning |
-|---|---|---|
-| **Root** | Purple (mauve) | First turn of the conversation. Always at position (0, 0). |
-| **Main Thread** | Grey | A normal turn continuing the current branch. |
-| **Side Quest?** | Orange (peach) | Auto-detected drift — pending user confirmation. Dashed animated edge. |
-| **Branch** | Column color | User-confirmed branch. Solid edge in the column's palette color. |
-| **Placeholder** | Dim grey | A ghost node inserted to reserve the left-child slot when a branch is detected. Italic label, dashed edge. |
-| **Isolated** | Grey (no parent) | A node that has been detached from the tree. Floats freely. |
-
-**Branch colors** are assigned by horizontal column. Each column to the right of the root gets a distinct color from the Catppuccin Latte extended palette (blue, teal, green, peach, pink, sapphire, maroon, flamingo). All nodes in the same column share a color, so you can visually follow a branch thread top to bottom.
-
----
-
-## The Canvas
-
-The tree is rendered as an interactive node graph using React Flow.
-
-**Pan** — click and drag on an empty area of the canvas.
-
-**Zoom** — scroll wheel, or use the `+` / `−` / fit-view controls in the bottom-right corner.
-
-**Select a node** — click any node to open the Node Detail panel at the top of the sidebar. Click the node again or press ✕ in the detail panel to deselect.
-
-**Drag a node** — click and drag any node to reposition it. When you release near another node (within 90 px), **magnetic snap** kicks in: the dragged node (and its entire subtree) automatically snaps to become a child of the nearest node, and the parentId relationship is updated in IndexedDB.
-
-**Undo button** — the `↩ Undo (N)` button in the bottom-left of the canvas steps back up to 20 actions. It restores the Zustand store state and synchronizes IndexedDB (re-inserting deleted nodes, removing added ones, updating changed fields). The count in parentheses shows how many undo steps are available.
-
----
-
-## Node Detail Panel
-
-Click any node to open its detail panel at the top of the tree view.
-
-**Header row** — a colored badge showing the node type (Root / Branch / Side Quest? / Main Thread / Placeholder) on the left, and the turn number on the right.
-
-**Prompt** — the full user message for this turn, without any prefix.
-
-**AI response preview** — the full AI reply, shown in a subtle inset box below the prompt. This section only appears for non-ghost nodes.
-
-**Topic drift bar** — a horizontal bar showing the drift score from the previous node (0–100%). Green = low drift, yellow = moderate, red = high.
-
-**Resizing the detail panel** — drag the bottom edge of the panel downward to expand it and read longer content. The panel has a default height of 210 px and can be expanded up to 600 px. Content scrolls inside.
-
-### Actions
-
-| Button | Appears when | What it does |
-|---|---|---|
-| **👁 View** | Any non-ghost node | Scrolls the chat page to this turn and briefly highlights it with a purple outline. |
-| **⛓ Detach** | Non-root nodes with a parent | Splices the node out of its parent-child chain. Its children are reconnected directly to its grandparent. The node itself becomes isolated (no parent). Persists to IndexedDB. |
-| **✂ Branch →** | Normal nodes with a parent | Manually promotes the node to a confirmed branch. A ghost placeholder is created at the left-child slot. The node and its entire subtree shift one column to the right. The ghost label is filled asynchronously by Gemini if an API key is configured. |
-| **✓ Confirm** | Side Quest? (orange) nodes | Confirms the auto-detected branch. The node turns solid and takes the column's palette color. |
-| **↺ Back to Main** | Confirmed Branch nodes | Reverses a branch. Finds the sibling ghost node, moves the node and subtree back to the ghost's position, and deletes the ghost. |
-| **🗑 Delete** | Placeholder (ghost) nodes | Removes the ghost node. Any children it had are reparented directly to the ghost's parent. |
-| **🗑 Delete** | Isolated nodes (no parent, not root) | Permanently deletes the floating node from the store and IndexedDB. |
-
-All actions that modify the tree automatically push a snapshot to the undo stack before executing.
-
----
-
-## Drift Alert Banner
-
-When a new turn is auto-detected as a side quest, a **Side Quest Detected** banner appears at the top of the tree panel (above the node detail). It shows the drift percentage.
-
-- **✓ Confirm Branch** — same as clicking Confirm in the node detail: locks the node as a branch, dismisses the banner, and selects the node.
-- **Dismiss** — closes the banner without changing the node's status. The node remains orange (Side Quest?) until you act on it via the node detail.
-
----
-
-## The "✂ Branch Here" Button
-
-BranchBarber injects a small **"✂ Branch Here"** button beneath every AI response in the chat. Clicking it immediately marks that node as a confirmed branch (equivalent to using Node Detail → Branch →), without needing to open the sidebar. After clicking, the button changes to **"✓ Branched"** (green) to confirm the action.
-
----
-
-## Settings
-
-Open the **Settings** tab in the sidebar.
-
-### Gemini API Key
-
-Paste your Gemini API key (`AIza...`) here. The key is stored in IndexedDB and **never leaves your browser** — it is only used for direct client-side API calls.
-
-When a key is configured, two features activate:
-
-1. **Branch summaries** — after each turn is processed, Gemini 2.0 Flash generates an 8-word summary of the prompt/response pair. This becomes the node's label. Without a key, the label falls back to the first 60 characters of the prompt.
-
-2. **Ghost node labels** — when a branch is created, Gemini predicts in 8 words what the user would have asked next on the main thread, and uses that as the placeholder label (e.g. "Explain gradient descent next steps").
-
-Without a key, all functionality works except these two label-generation features.
-
-**To get a Gemini API key**: visit [Google AI Studio](https://aistudio.google.com/apikey), create a project, and generate a free key.
-
-### Auto-detect Side Quests
-
-Toggle (default: on). When enabled, every new turn is checked for drift and flagged automatically. When disabled, BranchBarber still builds the tree but never auto-flags — you can still branch manually using "✂ Branch Here" or Node Detail.
-
-### Drift Threshold
-
-Slider from 30% to 90% (default: 60%). Controls how sensitive auto-detection is.
-
-- **Lower value (e.g. 30%)** — more sensitive. Flags smaller topic shifts as side quests. Useful for highly focused sessions where any deviation matters.
-- **Higher value (e.g. 90%)** — more relaxed. Only flags dramatic topic changes. Useful for wide-ranging exploratory sessions.
-
-The threshold works as: `flag if drift_score > (1 − threshold)`. At 60%, anything with >40% cosine distance from the previous turn is flagged.
-
-Click **Save Settings** to persist. The button briefly turns green ("✓ Saved") to confirm.
-
----
-
-## Privacy
-
-- All conversation data (prompts, responses, embeddings, positions) is stored locally in your browser's **IndexedDB** using Dexie.js.
-- The embedding model (`all-MiniLM-L6-v2`) runs entirely on-device via WebAssembly. No text is sent to any server for embedding.
-- The only optional network call is to the **Gemini API** for label generation, and only if you have provided an API key. The request includes up to 500 characters of your prompt and response.
-- No telemetry, no analytics, no external logging.
+After rebuilding, go to `chrome://extensions/` and click the ↺ refresh icon on the Branch Barber card. Then hard-reload the AI chat tab (`Ctrl+Shift+R`).
 
 ---
 
@@ -261,43 +65,43 @@ Click **Save Settings** to persist. The button briefly turns green ("✓ Saved")
 ```
 src/
 ├── background/
-│   └── index.ts             # MV3 service worker — routes EMBED messages to offscreen doc
+│   └── index.ts             # MV3 service worker — routes EMBED messages to offscreen doc,
+│                            # manages keepalive alarm, ensures offscreen document stays alive
 ├── offscreen/
 │   └── index.ts             # Offscreen document — loads Transformers.js WASM pipeline,
-│                            # pre-warms model on startup, handles EMBED requests
+│                            # pre-warms all-MiniLM-L6-v2 on startup, handles EMBED requests
 ├── content/
-│   ├── index.ts             # Entry point — mounts sidebar, wires bb-reset listener
+│   ├── index.ts             # Entry point — mounts sidebar, wires bb-reset / bb-rescale listeners
 │   ├── observer.ts          # Core pipeline: MutationObserver → drift detection →
-│   │                        # node creation → DB write → store update
-│   ├── selectors.ts         # DOM selectors for ChatGPT and Gemini (with fallbacks)
-│   ├── navigator.ts         # Message handler: SHOW_SIDEBAR, RESET_TREE, scroll-to,
-│   │                        # reset-to (triggers host page Edit button)
+│   │                        # node creation → DB write → store update → button injection
+│   ├── selectors.ts         # Platform-specific DOM selectors for ChatGPT and Gemini
+│   ├── navigator.ts         # Message handler: SHOW_SIDEBAR, RESET_TREE, scroll-to, reset-to
 │   └── sidebar-injector.ts  # Injects a Shadow DOM host and mounts the React sidebar
 ├── popup/
 │   ├── index.tsx            # Popup entry point
-│   └── PopupApp.tsx         # "Open Saved Tree" / "New Tree" UI
+│   └── PopupApp.tsx         # "Open Tree" / "New Tree" popup UI
 ├── store/
-│   └── index.ts             # Zustand store — nodes, layout, undo stack, settings,
-│                            # drift alerts; actions: addNode, markAsBranch, shiftSubtree,
-│                            # reparentNode, pushUndo, undo, bumpLayoutKey, …
+│   └── index.ts             # Zustand store — nodes, layout, undo stack, settings;
+│                            # actions: addNode, markAsBranch, unmarkBranch, shiftSubtree,
+│                            # reparentNode, isolateNode, removeNode, pushUndo, undo,
+│                            # bumpLayoutKey, updateNodeLabel, loadNodes, clearConversation
 ├── db/
-│   └── index.ts             # Dexie schema: nodes, conversations, settings tables;
-│                            # upsertNode, getConversationNodes, saveSettings, …
+│   └── index.ts             # Dexie v1 schema: nodes, conversations, settings tables
+│                            # upsertNode, getConversationNodes, saveSettings, getOrCreateSettings
 ├── utils/
-│   ├── index.ts             # generateId, cosineSimilarity, lexicalDrift (TF-IDF),
-│   │                        # debounce, truncate
-│   └── gemini.ts            # summarizeWithGemini, inferGhostTopic
+│   ├── index.ts             # generateId, cosineSimilarity, lexicalDrift (TF-IDF), debounce
+│   └── gemini.ts            # summarizeWithGemini, inferGhostTopic — serial queue with
+│                            # exponential backoff retry on 429
 └── components/
     ├── theme.ts             # Catppuccin Latte palette; branchColor(posX), branchBg(posX)
-    ├── Sidebar.tsx          # Sidebar shell — resize handle, tabs, header, legend strip
-    ├── ConversationTree.tsx # React Flow canvas — node/edge building, magnetic snap,
-    │                        # undo button (Panel bottom-left), DB sync on undo
-    ├── TreeNode.tsx         # Custom node renderer — drift bar, status badge, colors
-    ├── NodeDetail.tsx       # Selected-node inspector — prompt, response, actions,
-    │                        # branch/unbranch/detach/delete logic
-    ├── DriftAlert.tsx       # "Side Quest Detected" banner
-    ├── SettingsPanel.tsx    # API key + threshold form
-    └── ErrorBoundary.tsx    # Catches React render errors in tree/settings
+    ├── Sidebar.tsx          # Sidebar shell — Shadow DOM, resize handle, tabs, dynamic legend
+    ├── ConversationTree.tsx # React Flow canvas — node/edge building, watermark, magnetic snap,
+    │                        # undo button, DB sync on undo, rescale layout listener
+    ├── TreeNode.tsx         # Custom node renderer — drift bar, status badge, column colors
+    ├── NodeDetail.tsx       # Selected-node inspector — prompt, AI preview, branch/unbranch/
+    │                        # detach/delete/ghost-delete actions, full undo integration
+    ├── SettingsPanel.tsx    # API key, summary mode, drift threshold, auto-scale toggle
+    └── ErrorBoundary.tsx    # React render error boundary for tree and settings
 ```
 
 ### Data Flow
@@ -305,32 +109,77 @@ src/
 ```
 DOM mutation (MutationObserver, debounced 800 ms)
   │
-  ├─ Extract prompt + response text from ChatGPT/Gemini DOM
-  ├─ Request embedding → background service worker → offscreen WASM pipeline
-  │   (async; falls back to lexical TF-IDF if model not ready)
-  ├─ Compute drift score vs. parent node's embedding (cosine or TF-IDF)
-  ├─ Check keyword shift signals
-  ├─ Determine node position (parent-relative binary-tree layout)
-  │   ├─ Normal: left child of parent (x = parentX, y = parentY + 130)
-  │   └─ Branch: right child of parent (x = parentX + 240, y = parentY + 130)
+  ├─ Re-query DOM each iteration (guards against Angular re-renders on Gemini)
+  ├─ Extract prompt + response text (pierces Shadow DOM where necessary)
+  ├─ Compute lexical TF-IDF drift score vs. parent node (synchronous, instant)
+  ├─ Fire embedding request in background → service worker → offscreen WASM pipeline
+  │   (async; updates DB when it arrives; doesn't block node creation)
+  ├─ Compare drift score against configurable threshold (default 80%)
+  ├─ Determine node position (parent-relative binary-tree layout):
+  │   ├─ No drift: left child  (x = parentX,       y = parentY + 130)
+  │   └─ Drift:    right child (x = parentX + 240,  y = parentY + 130)
   │       + ghost left child placeholder created simultaneously
-  ├─ Call Gemini API for 8-word summary label (optional, async)
-  ├─ Persist node to IndexedDB (Dexie upsertNode)
+  ├─ Write node to IndexedDB (Dexie upsertNode) — immediate
   ├─ Update Zustand store (addNode → buildChildren → React re-render)
-  └─ If drift flagged: set driftAlert → DriftAlert banner appears
+  ├─ If live turn + AI mode: call Gemini async for 8-word summary (non-blocking)
+  │   Ghost label: inferGhostTopic (high-priority queue)
+  │   Node label:  summarizeWithGemini (low-priority queue, after ghost)
+  └─ Inject "✂ Branch Here" button after each AI element (as DOM sibling)
 ```
 
 ### Key Design Decisions
 
 **Shadow DOM injection** — the sidebar React tree is mounted inside a Shadow DOM host so its styles never conflict with ChatGPT's or Gemini's CSS.
 
-**Offscreen document for embeddings** — Chrome MV3 service workers have strict restrictions on WASM and large module loading. An offscreen document (a hidden extension page) sidesteps these limits and keeps the WASM pipeline alive across multiple requests.
+**Offscreen document for embeddings** — Chrome MV3 service workers cannot run WASM or load large ML models. An offscreen document (a hidden extension page with `wasm-unsafe-eval` CSP) keeps the Transformers.js pipeline alive across requests and restarts.
 
-**Parent-relative layout** — node positions are stored as absolute (x, y) canvas coordinates derived at creation time from the parent's position. This means positions survive reloads and arbitrary tree edits without needing a layout algorithm at render time. `rebuildLayoutFromNodes` reconstructs the live layout tracking state (`mainBranchCurrentId`, `sideQuestCurrentId`) from the sorted DB nodes on page reload.
+**Non-blocking node creation** — embedding requests and Gemini calls are fully async and never block node creation. Nodes appear immediately with a fallback label (first 60 chars of prompt); labels update in the background when AI responses arrive.
 
-**Structure hash for React Flow** — rather than syncing ReactFlow node state on every Zustand update, `ConversationTree` computes a hash of `id:parentId:status:posX` for all nodes and only rebuilds the full node/edge arrays when this hash changes. Selection changes (which don't affect structure) only update the `selected` flag on existing ReactFlow nodes, avoiding unnecessary re-renders.
+**Live-turn vs. batch detection** — when a new tree is opened, all historical turns are processed in batch (no Gemini calls, zero risk of 429). Gemini is only called for genuinely new turns typed after the tree was opened — at most 1–2 calls per message.
 
-**Undo stack** — up to 20 snapshots of the full `nodes` record are stored in Zustand. On undo, the snapshot is restored to the store and then synchronized back to IndexedDB: nodes that reappear are re-inserted (without embeddings, which are re-computed on the next matching turn), nodes that should be gone are deleted, and changed fields (parentId, position, status flags) are updated.
+**Serial Gemini queue with retry** — all Gemini calls pass through a single serial queue with a 1-second minimum gap. On 429, exponential backoff retries (5 s → 10 s, up to 3 attempts) before giving up.
+
+**Parent-relative layout** — node positions are stored as absolute (x, y) canvas coordinates derived at creation time. No layout algorithm runs at render time. `rebuildLayoutFromNodes` reconstructs live tracking state from sorted DB nodes on page reload.
+
+**Auto-scale rescale** — when the user saves settings with "Auto-scale Overall Drift Threshold" ON, a `bb-rescale` event triggers a full re-layout: all ghost nodes are deleted and recreated, all real nodes get new positions and branch flags based on the new threshold. This runs entirely in the content script against IndexedDB, not through the React component tree.
+
+**Structure hash for React Flow** — `ConversationTree` computes a hash of `id:parentId:status:posX` for all nodes and only rebuilds the full ReactFlow node/edge arrays when the hash changes, avoiding unnecessary re-renders on pure selection changes.
+
+**Concurrency lock** — `isScanning` prevents concurrent `scanAndProcessTurns` invocations. It is reset on `resetLayout()` so new trees never get stuck behind a stale lock from a previous conversation.
+
+**Angular DOM guard** — Gemini uses Angular web components that re-render their internal DOM on each streaming update. Branch Barber injects "✂ Branch Here" buttons as siblings (not children) of `<model-response>` elements so Angular's re-renders cannot wipe them. The injection marker `data-branchbarber-injected` is checked on each scan cycle and buttons are re-injected if Angular replaces the element.
+
+---
+
+## Drift Detection
+
+Branch Barber uses a two-layer approach:
+
+### Layer 1 — Lexical TF-IDF (primary, synchronous)
+
+The combined prompt + response text (up to 512 characters) is tokenized, stopwords are filtered, and a cosine similarity is computed over term-frequency vectors against the parent node's text. The drift score is `1 − similarity` (0 = identical topics, 1 = completely unrelated). This runs synchronously — no network, no async, no delay.
+
+### Layer 2 — Semantic Embeddings (async, improves accuracy over time)
+
+Each turn is also embedded using **`all-MiniLM-L6-v2`** via Transformers.js on a WASM backend in an offscreen document. The embedding is computed after the node is created and stored in IndexedDB. Future nodes that compare against this node will use cosine similarity of the full 384-dimensional embedding vectors instead of lexical overlap, giving more accurate drift detection for paraphrased or domain-shifted text.
+
+### Threshold
+
+The drift score is compared against `driftThreshold` (default **80%**). If `driftScore > threshold`, the node is automatically branched. The threshold is configurable in Settings and can be applied retroactively to the whole tree via the Auto-scale toggle.
+
+---
+
+## Node Types
+
+| Badge | Meaning |
+|---|---|
+| **Root** | First turn of the conversation. Always at position (0, 0). Purple. |
+| **Main Thread** | Normal turn continuing the current branch. Grey. |
+| **Branch** | Auto-detected or manually created branch. Column color. |
+| **Placeholder** | Ghost node inserted at the left-child slot when a branch is created. Italic label, dashed edge. Dim grey. |
+| **Isolated** | Node detached from the tree. Floats freely on canvas. |
+
+Branch colors are assigned by horizontal column (x position divided by node width). Each column gets a distinct Catppuccin Latte color: blue → teal → green → peach → pink → sapphire → maroon → flamingo. All nodes in the same column share a color.
 
 ---
 
@@ -354,17 +203,33 @@ DOM mutation (MutationObserver, debounced 800 ms)
 
 - [x] MutationObserver pipeline for ChatGPT and Gemini
 - [x] Shadow DOM sidebar with React Flow tree
-- [x] Semantic drift detection (Transformers.js embeddings + TF-IDF fallback)
+- [x] Lexical TF-IDF drift detection (synchronous, no dependencies)
+- [x] Semantic drift detection via Transformers.js embeddings (async, background)
 - [x] Binary-tree parent-relative layout with ghost placeholders
 - [x] Manual and auto branch/unbranch with full subtree shifting
-- [x] Magnetic snap on node drag
-- [x] Gemini-powered node summaries and ghost label prediction
-- [x] Resizable sidebar
-- [x] Undo (20-step history with DB sync)
-- [x] Node detail: resizable, full prompt + response preview
+- [x] Magnetic snap on node drag with subtree reparenting
+- [x] Resizable sidebar (up to 1200 px)
+- [x] Undo (20-step history with IndexedDB sync)
+- [x] Node detail panel — resizable, full prompt + AI response preview
+- [x] Auto-scale Overall Drift Threshold (retroactive re-layout)
+- [x] "✂ Branch Here" inline button on every AI response (Gemini-safe)
+- [x] Live-turn-only Gemini calls (prevents 429 on batch load)
+- [x] Serial Gemini queue with exponential backoff retry
+- [ ] **Resolve Gemini API rate limiting for paid-tier keys** — the Gemini 2.0 Flash free tier enforces 15 RPM; paid-tier support and adaptive rate detection are next
+- [ ] **Chrome Web Store release** — coming very soon
 - [ ] Dagre.js auto-layout option for large trees
 - [ ] Export tree as image or JSON
-- [ ] Cross-device sync via cloud backend
+- [ ] Claude / GPT API key support for node summarization
+- [ ] Cross-device sync via optional cloud backend
+
+---
+
+## Privacy
+
+- All conversation data (prompts, responses, embeddings, positions) is stored **locally** in your browser's IndexedDB via Dexie.js.
+- The embedding model runs entirely **on-device** via WebAssembly. No text is sent to any server for embedding.
+- The only optional network call is to the **Gemini API** for label generation, and only when you provide an API key. The request includes up to 500 characters of your prompt and response.
+- No telemetry, no analytics, no external logging of any kind.
 
 ---
 
@@ -374,6 +239,10 @@ Built by **Wen Ding**
 
 - Email: [dingywn@seas.upenn.edu](mailto:dingywn@seas.upenn.edu)
 - GitHub: [@dingonewen](https://github.com/dingonewen)
+
+<p align="center">
+  <img src="public/icons/dizzy.png" width="64" alt="" />
+</p>
 
 ---
 
