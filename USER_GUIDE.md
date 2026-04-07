@@ -430,5 +430,5 @@ The number in parentheses (e.g., `↩ Undo (3)`) shows how many steps are availa
 <p align="center">
   <img src="public/icons/dizzy.png" width="48" alt="" />
   <br/>
-  <em>Built by <a href="https://github.com/dingonewen">Wen Ding</a> · <a href="mailto:dingywn@seas.upenn.edu">dingywn@seas.upenn.edu</a></em>
+  <em>Built by <a href="https://github.com/dingonewen">Yiwen Ding</a> · <a href="mailto:dingywn@seas.upenn.edu">dingywn@seas.upenn.edu</a></em>
 </p>
