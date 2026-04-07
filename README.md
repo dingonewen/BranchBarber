@@ -235,7 +235,7 @@ Branch colors are assigned by horizontal column (x position divided by node widt
 
 ## Author
 
-Built by **YiWen Ding**
+Built by **Yiwen Ding**
 
 - Email: [dingywn@seas.upenn.edu](mailto:dingywn@seas.upenn.edu)
 - GitHub: [dingonewen](https://github.com/dingonewen)
