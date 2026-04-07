@@ -1,7 +1,7 @@
 # Branch Barber
 
 <p align="center">
-  <img src="public/icons/source.png" width="120" alt="Branch Barber" />
+  <img src="public/icons/logo_1400_560.png" width="720" alt="Branch Barber" />
 </p>
 
 > **Stop shaving the yak. Start climbing the tree.**
@@ -11,8 +11,12 @@
 Supported platforms: **ChatGPT** (chatgpt.com, chat.openai.com) and **Google Gemini** (gemini.google.com).
 
 <p align="center">
-  <img src="public/screenshot4.jpg" width="720" alt="Branch Barber screenshot" />
+  <img src="public/gif_demo.gif" width="720" alt="Branch Barber live demo" />
 </p>
+
+<p align="center"><em>New nodes added in real time. This conversation stays on topic so there's no auto-branch — you can still manually branch any node or lower the Drift Threshold in Settings.</em></p>
+
+▶️ [Watch the full demo on YouTube](https://youtu.be/-KdrZlcRvi4)
 
 ---
 
@@ -57,6 +61,7 @@ npm run dev        # Webpack in watch mode
 ### Reload After Changes
 
 After rebuilding, go to `chrome://extensions/` and click the ↺ refresh icon on the Branch Barber card. Then hard-reload the AI chat tab (`Ctrl+Shift+R`).
+
 
 ---
 
