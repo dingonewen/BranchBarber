@@ -1,4 +1,4 @@
-/* Catppuccin Latte palette — single source of truth */
+/* Catppuccin Latte palette */
 export const C = {
   base:     "#eff1f5",
   mantle:   "#e6e9ef",
@@ -18,7 +18,6 @@ export const C = {
   red:      "#d20f39",
   teal:     "#179299",
   lavender: "#7287fd",
-  // Extended Latte colors for branch coloring
   sky:      "#04a5e5",
   sapphire: "#209fb5",
   pink:     "#ea76cb",
@@ -27,40 +26,58 @@ export const C = {
   flamingo: "#dd7878",
 };
 
-// Branch color palette — column 0 = main branch, each +1 = one branch right.
-// Cycles after running out.
-const BRANCH_PALETTE = [
-  C.mauve,    // col 0 — main
-  C.blue,     // col 1
-  C.teal,     // col 2
-  C.green,    // col 3
-  C.peach,    // col 4
-  C.pink,     // col 5
-  C.sapphire, // col 6
-  C.maroon,   // col 7
-];
+/* Catppuccin Mocha palette */
+export const CM = {
+  base:     "#1e1e2e",
+  mantle:   "#181825",
+  crust:    "#11111b",
+  surface0: "#313244",
+  surface1: "#45475a",
+  surface2: "#585b70",
+  overlay0: "#6c7086",
+  overlay1: "#7f849c",
+  subtext0: "#a6adc8",
+  subtext1: "#bac2de",
+  text:     "#cdd6f4",
+  mauve:    "#cba6f7",
+  blue:     "#89b4fa",
+  green:    "#a6e3a1",
+  yellow:   "#f9e2af",
+  red:      "#f38ba8",
+  teal:     "#94e2d5",
+  lavender: "#b4befe",
+  sky:      "#89dceb",
+  sapphire: "#74c7ec",
+  pink:     "#f5c2e7",
+  peach:    "#fab387",
+  maroon:   "#eba0ac",
+  flamingo: "#f2cdcd",
+};
+
+/** Returns the active palette based on dark mode flag. */
+export function tc(dark: boolean) { return dark ? CM : C; }
+
+const BRANCH_PALETTE_LIGHT = [C.mauve, C.blue, C.teal, C.green, C.peach, C.pink, C.sapphire, C.maroon];
+const BRANCH_PALETTE_DARK  = [CM.mauve, CM.blue, CM.teal, CM.green, CM.peach, CM.pink, CM.sapphire, CM.maroon];
 
 const NODE_W = 240;
 
 /** Returns the branch color for a given node position. */
-export function branchColor(posX: number): string {
+export function branchColor(posX: number, dark = false): string {
   const col = Math.max(0, Math.round(posX / NODE_W));
-  return BRANCH_PALETTE[col % BRANCH_PALETTE.length];
+  return (dark ? BRANCH_PALETTE_DARK : BRANCH_PALETTE_LIGHT)[col % 8];
 }
 
-/** Slightly transparent background tint from a branch color. */
-export function branchBg(posX: number): string {
+/** Slightly transparent background tint for a node. */
+export function branchBg(posX: number, dark = false): string {
   const col = Math.max(0, Math.round(posX / NODE_W));
-  // Alternate soft backgrounds per column
-  const bgs = [
-    "#f0eeff", // mauve tint
-    "#eef3ff", // blue tint
-    "#edfcfc", // teal tint
-    "#edfcf0", // green tint
-    "#fff4ec", // peach tint
-    "#fef0f8", // pink tint
-    "#edf5ff", // sapphire tint
-    "#fff0f0", // maroon tint
+  const lightBgs = [
+    "#f0eeff", "#eef3ff", "#edfcfc", "#edfcf0",
+    "#fff4ec", "#fef0f8", "#edf5ff", "#fff0f0",
   ];
-  return bgs[col % bgs.length];
+  const darkBgs = [
+    "#2a2040", "#1e2845", "#1a3535", "#1a3028",
+    "#3a2820", "#3a2038", "#1a2838", "#3a2028",
+  ];
+  return (dark ? darkBgs : lightBgs)[col % 8];
 }

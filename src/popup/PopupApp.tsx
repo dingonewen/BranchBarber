@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { C, CM } from "../components/theme";
 
 type Status = "idle" | "active" | "loading";
 
@@ -8,38 +9,24 @@ function safeGetURL(path: string): string {
   try { return chrome.runtime.getURL(path); } catch { return ""; }
 }
 
-const S = {
-  wrap:    { width: 288, background: "#eff1f5", color: "#4c4f69", padding: 16, display: "flex", flexDirection: "column" as const, gap: 12, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
-  header:  { display: "flex", alignItems: "center", gap: 10 },
-  title:   { fontWeight: 700, fontSize: 14, color: "#4c4f69", letterSpacing: "-0.01em" },
-  sub:     { fontSize: 10, color: "#8c8fa1", marginTop: 1 },
-  status:  { display: "flex", alignItems: "center", gap: 8, background: "#e6e9ef", borderRadius: 8, padding: "7px 10px" },
-  dot:     (color: string): React.CSSProperties => ({ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }),
-  statusTxt: { fontSize: 11, color: "#6c6f85" } as React.CSSProperties,
-  hint:    { fontSize: 11, color: "#8c8fa1", lineHeight: 1.5 } as React.CSSProperties,
-  row:     { display: "flex", alignItems: "flex-start", gap: 6 } as React.CSSProperties,
-  btn:     (bg: string, disabled = false): React.CSSProperties => ({
-    flex: 1, padding: "8px 0", borderRadius: 8, border: "none",
-    cursor: disabled ? "default" : "pointer",
-    background: disabled ? "#bcc0cc" : bg,
-    color: "#fff", fontWeight: 700, fontSize: 12,
-  }),
-  footer:  { fontSize: 10, color: "#acb0be", textAlign: "center" as const },
-};
-
 // Always consume lastError so Chrome never logs "Unchecked runtime.lastError"
 function send(tabId: number, msg: object, cb?: (r: unknown) => void): void {
   chrome.tabs.sendMessage(tabId, msg, (response) => {
-    void chrome.runtime.lastError; // read to suppress the error
+    void chrome.runtime.lastError;
     cb?.(response);
   });
 }
 
 export function PopupApp() {
-  const [status, setStatus]   = useState<Status>("loading");
-  const [tabUrl, setTabUrl]   = useState("");
-  const [tabId, setTabId]     = useState<number | null>(null);
-  const [busy, setBusy]       = useState(false);
+  const [status, setStatus] = useState<Status>("loading");
+  const [tabUrl, setTabUrl] = useState("");
+  const [tabId, setTabId]   = useState<number | null>(null);
+  const [busy, setBusy]     = useState(false);
+
+  // Dark mode: localStorage for instant rendering, synced from/to content script
+  const [dark, setDark] = useState<boolean>(
+    () => localStorage.getItem("bb-dark-mode") === "true"
+  );
 
   useEffect(() => {
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -51,37 +38,80 @@ export function PopupApp() {
       const supported = SUPPORTED_HOSTS.some((h) => url.includes(h));
       if (!supported || id == null) { setStatus("idle"); return; }
 
-      send(id, { type: "GET_STATUS" }, (resp) => {
-        setStatus(resp ? "active" : "idle");
+      send(id, { type: "GET_STATUS" }, (resp: unknown) => {
+        const r = resp as { status: string; darkMode?: boolean } | null;
+        setStatus(r ? "active" : "idle");
+        // Sync dark mode from content script (source of truth)
+        if (r && typeof r.darkMode === "boolean") {
+          setDark(r.darkMode);
+          localStorage.setItem("bb-dark-mode", String(r.darkMode));
+        }
       });
     });
   }, []);
 
+  const toggleDark = () => {
+    const next = !dark;
+    setDark(next);
+    localStorage.setItem("bb-dark-mode", String(next));
+    if (tabId != null) {
+      send(tabId, { type: "SET_DARK_MODE", dark: next });
+    }
+  };
+
   const isSupported = SUPPORTED_HOSTS.some((h) => tabUrl.includes(h));
   const canAct      = isSupported && tabId != null;
 
-  const openSaved = () => {
-    if (!canAct) return;
-    send(tabId!, { type: "SHOW_SIDEBAR" });
-  };
-
-  const openNew = () => {
+  const openSaved = () => { if (!canAct) return; send(tabId!, { type: "SHOW_SIDEBAR" }); };
+  const openNew   = () => {
     if (!canAct || busy) return;
     setBusy(true);
-    send(tabId!, { type: "RESET_TREE" }, () => {
-      setBusy(false);
-    });
+    send(tabId!, { type: "RESET_TREE" }, () => setBusy(false));
   };
 
   const dotColor =
-    status === "active"  ? "#40a02b" :
-    status === "loading" ? "#df8e1d" : "#acb0be";
+    status === "active"  ? (dark ? CM.green  : C.green) :
+    status === "loading" ? (dark ? CM.yellow : C.yellow) :
+                           (dark ? CM.overlay0 : C.surface2);
 
   const statusText =
     status === "active"  ? "Active on this page" :
     status === "loading" ? "Checking..." :
     isSupported          ? "Not yet active" :
     "Navigate to ChatGPT or Gemini";
+
+  const P = dark ? CM : C;
+
+  const S = {
+    wrap:      { width: 288, background: P.base, color: P.text, padding: 16, display: "flex", flexDirection: "column" as const, gap: 12, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" },
+    header:    { display: "flex", alignItems: "center", gap: 10 },
+    headerRight: { marginLeft: "auto", display: "flex", alignItems: "center" } as React.CSSProperties,
+    title:     { fontWeight: 700, fontSize: 14, color: P.text, letterSpacing: "-0.01em" } as React.CSSProperties,
+    sub:       { fontSize: 10, color: P.overlay1, marginTop: 1 } as React.CSSProperties,
+    status:    { display: "flex", alignItems: "center", gap: 8, background: P.mantle, borderRadius: 8, padding: "7px 10px" } as React.CSSProperties,
+    statusTxt: { fontSize: 11, color: P.subtext0 } as React.CSSProperties,
+    hint:      { fontSize: 11, color: P.overlay1, lineHeight: 1.5 } as React.CSSProperties,
+    row:       { display: "flex", alignItems: "flex-start", gap: 6 } as React.CSSProperties,
+    footer:    { fontSize: 10, color: P.overlay0, textAlign: "center" as const },
+  };
+
+  const btnStyle = (bg: string, disabled = false): React.CSSProperties => ({
+    flex: 1, padding: "8px 0", borderRadius: 8, border: "none",
+    cursor: disabled ? "default" : "pointer",
+    background: disabled ? P.surface1 : bg,
+    color: dark ? P.crust : "#fff",
+    fontWeight: 700, fontSize: 12,
+  });
+
+  const themeBtn: React.CSSProperties = {
+    background: "none", border: `1px solid ${P.surface1}`,
+    borderRadius: 6, cursor: "pointer",
+    color: P.subtext0, fontSize: 14,
+    width: 28, height: 28,
+    display: "flex", alignItems: "center", justifyContent: "center",
+    flexShrink: 0,
+    transition: "background 0.15s",
+  };
 
   return (
     <div style={S.wrap}>
@@ -91,10 +121,15 @@ export function PopupApp() {
           <div style={S.title}>Branch Barber</div>
           <div style={S.sub}>Conversation Tree</div>
         </div>
+        <div style={S.headerRight}>
+          <button style={themeBtn} onClick={toggleDark} title={dark ? "Switch to Light mode" : "Switch to Dark mode"}>
+            {dark ? "☀" : "☾"}
+          </button>
+        </div>
       </div>
 
       <div style={S.status}>
-        <div style={S.dot(dotColor)} />
+        <div style={{ width: 8, height: 8, borderRadius: "50%", background: dotColor, flexShrink: 0 }} />
         <span style={S.statusTxt}>{statusText}</span>
       </div>
 
@@ -103,9 +138,8 @@ export function PopupApp() {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
           {([
-            ["✂", "#8839ef", 'Click "Branch" on a node to send it to the right'],
-            ["⚠", "#fe640b", "Orange nodes = auto-detected topic drift"],
-            ["⛓", "#8c8fa1", "Detach splices a node out without losing children"],
+            ["✂", P.mauve, 'Click "Branch" on a node to send it to the right'],
+            ["⛓", P.overlay1, "Detach splices a node out without losing children"],
           ] as [string, string, string][]).map(([icon, color, text]) => (
             <div key={text} style={S.row}>
               <span style={{ fontSize: 12, color, marginTop: 1 }}>{icon}</span>
@@ -118,14 +152,12 @@ export function PopupApp() {
       {canAct && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           <div style={{ display: "flex", gap: 8 }}>
-            <button style={S.btn("#8839ef")} onClick={openSaved}>
-              Open Tree
-            </button>
-            <button style={S.btn("#1e66f5", busy)} onClick={openNew} disabled={busy}>
+            <button style={btnStyle(P.mauve)} onClick={openSaved}>Open Tree</button>
+            <button style={btnStyle(P.blue, busy)} onClick={openNew} disabled={busy}>
               {busy ? "Starting..." : "New Tree"}
             </button>
           </div>
-          <div style={{ fontSize: 10, color: "#8c8fa1", textAlign: "center" }}>
+          <div style={{ fontSize: 10, color: P.overlay1, textAlign: "center" }}>
             "New Tree" clears all saved nodes for this page
           </div>
         </div>

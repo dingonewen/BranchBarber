@@ -60,6 +60,8 @@ interface BranchBarberState {
   setSidebarTab: (tab: "tree" | "settings") => void;
   setProcessing: (v: boolean) => void;
   setDriftAlert: (alert: { nodeId: string; score: number } | null) => void;
+  darkMode: boolean;
+  setDarkMode: (v: boolean) => void;
   setSettings: (s: Partial<{ geminiApiKey: string; driftThreshold: number; autoDetectBranches: boolean; summaryMode: "gemini" | "local" }>) => void;
   loadNodes: (nodes: ConversationNode[]) => void;
 }
@@ -107,6 +109,7 @@ export const useBranchStore = create<BranchBarberState>((set, get) => ({
   selectedNodeId: null, sidebarVisible: true, sidebarTab: "tree",
   isProcessing: false, driftAlert: null,
   geminiApiKey: "", driftThreshold: 0.6, autoDetectBranches: true, summaryMode: "local" as const,
+  darkMode: false,
   layoutKey: 0,
   undoStack: [],
 
@@ -216,6 +219,8 @@ export const useBranchStore = create<BranchBarberState>((set, get) => ({
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
   setProcessing: (v) => set({ isProcessing: v }),
   setDriftAlert: (alert) => set({ driftAlert: alert }),
+
+  setDarkMode: (v) => set({ darkMode: v }),
 
   setSettings: (s) =>
     set((state) => ({

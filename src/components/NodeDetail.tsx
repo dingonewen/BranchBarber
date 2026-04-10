@@ -2,7 +2,7 @@ import { useBranchStore } from "../store";
 import { db, upsertNode, getOrCreateSettings } from "../db";
 import type { ConversationNode } from "../db";
 import { generateId } from "../utils";
-import { C, branchColor } from "./theme";
+import { tc, branchColor } from "./theme";
 import { inferGhostTopic } from "../utils/gemini";
 
 const NODE_W = 240;
@@ -16,6 +16,8 @@ const STATUS_BADGE: Record<string, string> = {
 export function NodeDetail() {
   const selectedId    = useBranchStore((s) => s.selectedNodeId);
   const nodes         = useBranchStore((s) => s.nodes);
+  const dark          = useBranchStore((s) => s.darkMode);
+  const P             = tc(dark);
   const conversationId = useBranchStore((s) => s.conversationId);
   const markAsBranch  = useBranchStore((s) => s.markAsBranch);
   const unmarkBranch  = useBranchStore((s) => s.unmarkBranch);
@@ -33,7 +35,7 @@ export function NodeDetail() {
   if (!node) return null;
 
   const isGhost  = node.status === "ghost";
-  const accent   = isGhost ? C.overlay1 : branchColor(node.position.x);
+  const accent   = isGhost ? P.overlay1 : branchColor(node.position.x, dark);
 
   // ── Branch (normal → side-quest) ─────────────────────────────────────────
   // Creates a ghost placeholder at the left-child slot, moves this node + its
@@ -161,9 +163,9 @@ export function NodeDetail() {
     <button key={label} onClick={onClick} style={{
       flex: 1, padding: "5px 0", borderRadius: 6, cursor: "pointer",
       fontSize: 11, fontWeight: 600,
-      background: color ?? C.base,
-      color: color ? "#fff" : C.subtext1,
-      border: color ? "none" : `1px solid ${C.surface1}`,
+      background: color ?? P.base,
+      color: color ? (dark ? P.crust : "#fff") : P.subtext1,
+      border: color ? "none" : `1px solid ${P.surface1}`,
     }}>
       {label}
     </button>
@@ -171,34 +173,34 @@ export function NodeDetail() {
 
   return (
     <div style={{
-      background: C.mantle, border: `1px solid ${C.surface0}`,
-      borderRadius: 10, padding: "10px 12px", fontSize: 11, color: C.text,
+      background: P.mantle, border: `1px solid ${P.surface0}`,
+      borderRadius: 10, padding: "10px 12px", fontSize: 11, color: P.text,
       resize: "vertical", overflow: "auto", height: 210, minHeight: 120, maxHeight: 600,
     }}>
       {/* Header: badge + turn number + close */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <span style={{ fontWeight: 700, fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em",
-          color: "#fff", background: accent, borderRadius: 4, padding: "2px 6px" }}>
+          color: dark ? P.crust : "#fff", background: accent, borderRadius: 4, padding: "2px 6px" }}>
           {STATUS_BADGE[node.status]}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {node.domIndex >= 0 && (
-            <span style={{ fontSize: 10, color: C.overlay1 }}>Turn {node.domIndex + 1}</span>
+            <span style={{ fontSize: 10, color: P.overlay1 }}>Turn {node.domIndex + 1}</span>
           )}
-          <button onClick={() => selectNode(null)} style={{ background: "none", border: "none", cursor: "pointer", color: C.overlay1, fontSize: 12, padding: 0 }}>✕</button>
+          <button onClick={() => selectNode(null)} style={{ background: "none", border: "none", cursor: "pointer", color: P.overlay1, fontSize: 12, padding: 0 }}>✕</button>
         </div>
       </div>
 
       {/* Ghost label */}
       {isGhost && (
-        <div style={{ fontStyle: "italic", color: C.overlay1, marginBottom: 8 }}>
+        <div style={{ fontStyle: "italic", color: P.overlay1, marginBottom: 8 }}>
           {node.label}
         </div>
       )}
 
       {/* User prompt (primary content) */}
       {!isGhost && node.prompt && (
-        <div style={{ color: C.text, lineHeight: 1.5, marginBottom: 8 }}>
+        <div style={{ color: P.text, lineHeight: 1.5, marginBottom: 8 }}>
           {node.prompt}
         </div>
       )}
@@ -209,8 +211,8 @@ export function NodeDetail() {
         const first = (full.match(/^.+?[.!?](?:\s|$)/s)?.[0] ?? full.slice(0, 150)).trim();
         const preview = first.length < full.length ? first + "…" : first;
         return (
-          <div style={{ color: C.subtext1, fontSize: 10, lineHeight: 1.4, marginBottom: 8,
-            background: C.crust, borderRadius: 6, padding: "5px 8px" }}>
+          <div style={{ color: P.subtext1, fontSize: 10, lineHeight: 1.4, marginBottom: 8,
+            background: P.crust, borderRadius: 6, padding: "5px 8px" }}>
             {preview}
           </div>
         );
@@ -220,14 +222,14 @@ export function NodeDetail() {
       {!isGhost && node.driftScore > 0 && node.status !== "root" && (
         <div style={{ marginBottom: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-            <span style={{ color: C.overlay1, fontSize: 10 }}>Topic drift</span>
-            <span style={{ fontWeight: 700, fontSize: 10, color: node.driftScore > 0.6 ? C.red : node.driftScore > 0.3 ? C.yellow : C.green }}>
+            <span style={{ color: P.overlay1, fontSize: 10 }}>Topic drift</span>
+            <span style={{ fontWeight: 700, fontSize: 10, color: node.driftScore > 0.6 ? P.red : node.driftScore > 0.3 ? P.yellow : P.green }}>
               {Math.round(node.driftScore * 100)}%
             </span>
           </div>
-          <div style={{ height: 4, borderRadius: 2, background: C.surface0, overflow: "hidden" }}>
+          <div style={{ height: 4, borderRadius: 2, background: P.surface0, overflow: "hidden" }}>
             <div style={{ height: "100%", borderRadius: 2, width: `${Math.min(node.driftScore * 100, 100)}%`,
-              background: node.driftScore > 0.6 ? C.red : node.driftScore > 0.3 ? C.yellow : C.green }} />
+              background: node.driftScore > 0.6 ? P.red : node.driftScore > 0.3 ? P.yellow : P.green }} />
           </div>
         </div>
       )}
@@ -237,7 +239,7 @@ export function NodeDetail() {
 
         {/* Detach: splice out of chain */}
         {!isGhost && node.status !== "root" && node.parentId !== null &&
-          btn("⛓ Detach", handleDetach, C.overlay1)}
+          btn("⛓ Detach", handleDetach, P.overlay1)}
 
         {/* Normal on main → offer to branch right */}
         {node.status === "normal" && node.parentId !== null &&
@@ -245,14 +247,14 @@ export function NodeDetail() {
 
         {/* Branch → only option is back to main */}
         {node.status === "side-quest" &&
-          btn("↺ Back to Main", handleUnbranch, C.surface2)}
+          btn("↺ Back to Main", handleUnbranch, P.surface2)}
 
         {/* Ghost placeholder → can be deleted (children reparent to ghost's parent) */}
-        {isGhost && btn("🗑 Delete", handleDeleteGhost, C.red)}
+        {isGhost && btn("🗑 Delete", handleDeleteGhost, P.red)}
 
         {/* Isolated (detached, no parent, not root) → can be deleted */}
         {!isGhost && node.status !== "root" && node.parentId === null &&
-          btn("🗑 Delete", handleDeleteIsolated, C.red)}
+          btn("🗑 Delete", handleDeleteIsolated, P.red)}
       </div>
     </div>
   );

@@ -4,7 +4,7 @@ import { ConversationTree } from "./ConversationTree";
 import { NodeDetail } from "./NodeDetail";
 import { SettingsPanel } from "./SettingsPanel";
 import { ErrorBoundary } from "./ErrorBoundary";
-import { C, branchColor } from "./theme";
+import { C, tc, branchColor } from "./theme";
 
 export { C };
 
@@ -29,6 +29,8 @@ export function Sidebar() {
   const nodeCount    = Object.keys(nodes).length;
   const selectedId   = useBranchStore((s) => s.selectedNodeId);
   const isProcessing = useBranchStore((s) => s.isProcessing);
+  const dark         = useBranchStore((s) => s.darkMode);
+  const P            = tc(dark);
 
   // ── Dynamic legend — reflects actual node statuses + branch columns ───────
   const legend = (() => {
@@ -36,21 +38,21 @@ export function Sidebar() {
     if (vals.length === 0) return [];
     const items: { color: string; label: string }[] = [];
     if (vals.some((n) => n.status === "root"))
-      items.push({ color: C.mauve, label: "Root" });
+      items.push({ color: P.mauve, label: "Root" });
     if (vals.some((n) => n.status === "normal"))
-      items.push({ color: C.surface2, label: "Main Thread" });
+      items.push({ color: P.surface2, label: "Main Thread" });
 // One entry per unique branch column, with its actual color
     const branchCols = [...new Set(
       vals.filter((n) => n.status === "side-quest")
           .map((n) => Math.round(n.position.x / NODE_W))
     )].sort((a, b) => a - b);
     branchCols.forEach((col, i) => {
-      items.push({ color: branchColor(col * NODE_W), label: branchCols.length === 1 ? "Branch" : `Branch ${i + 1}` });
+      items.push({ color: branchColor(col * NODE_W, dark), label: branchCols.length === 1 ? "Branch" : `Branch ${i + 1}` });
     });
     if (vals.some((n) => n.status === "ghost"))
-      items.push({ color: C.overlay1, label: "Placeholder" });
+      items.push({ color: P.overlay1, label: "Placeholder" });
     if (vals.some((n) => n.status !== "root" && n.parentId === null && n.status !== "ghost"))
-      items.push({ color: C.overlay0, label: "Isolated" });
+      items.push({ color: P.overlay0, label: "Isolated" });
     return items;
   })();
 
@@ -109,12 +111,12 @@ export function Sidebar() {
           position: "absolute", left: 0, top: "50%",
           transform: "translateY(-50%)",
           width: TOGGLE_W, height: 64,
-          background: C.surface0,
-          border: `1px solid ${C.surface1}`,
+          background: P.surface0,
+          border: `1px solid ${P.surface1}`,
           borderRight: "none",
           borderRadius: "8px 0 0 8px",
           display: "flex", alignItems: "center", justifyContent: "center",
-          cursor: "pointer", color: C.subtext0, fontSize: 16,
+          cursor: "pointer", color: P.subtext0, fontSize: 16,
           userSelect: "none", boxShadow: "-2px 0 6px rgba(0,0,0,0.06)",
         }}
       >
@@ -127,8 +129,8 @@ export function Sidebar() {
           pointerEvents: "auto",
           position: "absolute", top: 0, right: 0,
           width: width, height: "100vh",
-          background: C.base,
-          borderLeft: `1px solid ${C.surface1}`,
+          background: P.base,
+          borderLeft: `1px solid ${P.surface1}`,
           // Rounded top-left and bottom-left corners
           borderRadius: "12px 0 0 12px",
           display: "flex", flexDirection: "column",
@@ -154,32 +156,32 @@ export function Sidebar() {
         <div style={{
           display: "flex", alignItems: "center", gap: 8,
           padding: "10px 12px",
-          background: C.mantle,
-          borderBottom: `1px solid ${C.surface0}`,
+          background: P.mantle,
+          borderBottom: `1px solid ${P.surface0}`,
           flexShrink: 0,
         }}>
           <img src={safeGetURL("icons/icon48.png")} style={{ width: 20, height: 20, objectFit: "contain" }} />
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontWeight: 700, fontSize: 13, color: C.text, letterSpacing: "-0.01em" }}>
+              <span style={{ fontWeight: 700, fontSize: 13, color: P.text, letterSpacing: "-0.01em" }}>
                 Branch Barber
               </span>
               {isProcessing && (
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: C.mauve, display: "inline-block" }} />
+                <span style={{ width: 6, height: 6, borderRadius: "50%", background: P.mauve, display: "inline-block" }} />
               )}
             </div>
-            <div style={{ fontSize: 10, color: C.overlay1, marginTop: 1 }}>
+            <div style={{ fontSize: 10, color: P.overlay1, marginTop: 1 }}>
               {nodeCount} node{nodeCount !== 1 ? "s" : ""}
             </div>
           </div>
           <button
             onMouseDown={(e) => { e.stopPropagation(); e.preventDefault(); setOpen(false); }}
-            style={{ background: "none", border: "none", cursor: "pointer", color: C.overlay1, fontSize: 14, padding: "2px 6px", borderRadius: 4, lineHeight: 1 }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: P.overlay1, fontSize: 14, padding: "2px 6px", borderRadius: 4, lineHeight: 1 }}
           >✕</button>
         </div>
 
         {/* Tabs */}
-        <div style={{ display: "flex", borderBottom: `1px solid ${C.surface0}`, flexShrink: 0, background: C.mantle }}>
+        <div style={{ display: "flex", borderBottom: `1px solid ${P.surface0}`, flexShrink: 0, background: P.mantle }}>
           {(["tree", "settings"] as const).map((t) => (
             <button
               key={t}
@@ -187,9 +189,9 @@ export function Sidebar() {
               style={{
                 flex: 1, padding: "8px 0",
                 fontSize: 11, fontWeight: tab === t ? 600 : 400,
-                color: tab === t ? C.mauve : C.overlay1,
+                color: tab === t ? P.mauve : P.overlay1,
                 background: "none", border: "none",
-                borderBottom: tab === t ? `2px solid ${C.mauve}` : "2px solid transparent",
+                borderBottom: tab === t ? `2px solid ${P.mauve}` : "2px solid transparent",
                 cursor: "pointer", marginBottom: -1,
               }}
             >
@@ -205,9 +207,9 @@ export function Sidebar() {
             <div style={{ flex: 1, minHeight: 0 }}>
               <ErrorBoundary><ConversationTree /></ErrorBoundary>
             </div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", padding: "6px 12px", borderTop: `1px solid ${C.surface0}`, flexShrink: 0, background: C.mantle }}>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px", padding: "6px 12px", borderTop: `1px solid ${P.surface0}`, flexShrink: 0, background: P.mantle }}>
               {legend.map(({ color, label }) => (
-                <div key={label} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: C.overlay1 }}>
+                <div key={label} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: P.overlay1 }}>
                   <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
                   <span>{label}</span>
                 </div>

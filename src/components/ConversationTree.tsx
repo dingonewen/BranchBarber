@@ -15,7 +15,7 @@ import { useBranchStore, getSubtreeIds } from "../store";
 import type { TreeNode } from "../store";
 import type { ConversationNode } from "../db";
 import { TreeNodeComponent } from "./TreeNode";
-import { C, branchColor } from "./theme";
+import { tc, branchColor } from "./theme";
 import { db } from "../db";
 
 function safeGetURL(path: string): string {
@@ -43,16 +43,18 @@ function treeNodeToDbNode(n: TreeNode, conversationId: string): ConversationNode
 
 function buildFlowElements(
   storeNodes: Record<string, TreeNode>,
-  selectedId: string | null
+  selectedId: string | null,
+  dark: boolean
 ): { nodes: Node<TreeNode>[]; edges: Edge[] } {
   const nodes: Node<TreeNode>[] = [];
   const edges: Edge[] = [];
+  const P = tc(dark);
 
   for (const [id, n] of Object.entries(storeNodes)) {
     nodes.push({ id, type: "treeNode", position: n.position, data: n, selected: id === selectedId });
 
     if (n.parentId) {
-      const edgeColor = n.status === "ghost" ? C.surface1 : branchColor(n.position.x);
+      const edgeColor = n.status === "ghost" ? P.surface1 : branchColor(n.position.x, dark);
       edges.push({
         id: `e-${n.parentId}-${id}`,
         source: n.parentId,
@@ -84,6 +86,8 @@ function isDescendantOf(nodes: Record<string, TreeNode>, nodeId: string, ancesto
 export function ConversationTree() {
   const storeNodes    = useBranchStore((s) => s.nodes);
   const selectedId    = useBranchStore((s) => s.selectedNodeId);
+  const dark          = useBranchStore((s) => s.darkMode);
+  const P             = tc(dark);
   const layoutKey     = useBranchStore((s) => s.layoutKey);
   const conversationId = useBranchStore((s) => s.conversationId);
   const selectNode    = useBranchStore((s) => s.selectNode);
@@ -108,14 +112,14 @@ export function ConversationTree() {
 
     if (structure !== prevStructureRef.current) {
       prevStructureRef.current = structure;
-      const { nodes: n, edges: e } = buildFlowElements(storeNodes, selectedId);
+      const { nodes: n, edges: e } = buildFlowElements(storeNodes, selectedId, dark);
       setNodes(n);
       setEdges(e);
     } else {
       // Only selection changed — don't overwrite drag positions
       setNodes((prev) => prev.map((n) => ({ ...n, selected: n.id === selectedId })));
     }
-  }, [storeNodes, selectedId, layoutKey, setNodes, setEdges]);
+  }, [storeNodes, selectedId, layoutKey, dark, setNodes, setEdges]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node<TreeNode>) => {
@@ -223,11 +227,11 @@ export function ConversationTree() {
     return (
       <div style={{
         display: "flex", flexDirection: "column", alignItems: "center",
-        justifyContent: "center", height: "100%", color: C.overlay1,
+        justifyContent: "center", height: "100%", color: P.overlay1,
         fontSize: 11, padding: "0 16px", textAlign: "center", gap: 8,
       }}>
         <img src={safeGetURL("icons/icon128.png")} style={{ width: 48, height: 48, objectFit: "contain", opacity: 0.5 }} />
-        <p style={{ fontWeight: 600, color: C.subtext0, margin: 0 }}>No conversation yet</p>
+        <p style={{ fontWeight: 600, color: P.subtext0, margin: 0 }}>No conversation yet</p>
         <p style={{ margin: 0 }}>Start chatting and Branch Barber will map your tree.</p>
       </div>
     );
@@ -265,8 +269,9 @@ export function ConversationTree() {
         nodesConnectable={false}
         elementsSelectable={true}
       >
-        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color={C.surface0} />
-        <Controls showInteractive={false} position="bottom-right" />
+        <Background variant={BackgroundVariant.Dots} gap={16} size={1} color={P.surface0} />
+        <Controls showInteractive={false} position="bottom-right"
+          style={{ background: P.surface0, border: `1px solid ${P.surface1}`, borderRadius: 8 }} />
         <Panel position="bottom-left">
           <button
             onClick={handleUndo}
@@ -275,8 +280,8 @@ export function ConversationTree() {
             style={{
               display: "flex", alignItems: "center", gap: 5,
               padding: "6px 10px", borderRadius: 8, border: "none", cursor: undoStack.length === 0 ? "default" : "pointer",
-              background: undoStack.length === 0 ? C.surface0 : C.surface1,
-              color: undoStack.length === 0 ? C.overlay0 : C.subtext1,
+              background: undoStack.length === 0 ? P.surface0 : P.surface1,
+              color: undoStack.length === 0 ? P.overlay0 : P.subtext1,
               fontSize: 11, fontWeight: 600, fontFamily: "inherit",
               boxShadow: undoStack.length === 0 ? "none" : "0 1px 4px rgba(0,0,0,0.1)",
               transition: "background 0.15s",

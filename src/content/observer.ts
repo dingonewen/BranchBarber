@@ -117,6 +117,7 @@ async function initConversation(): Promise<void> {
     autoDetectBranches: settings.autoDetectBranches,
     summaryMode: settings.summaryMode ?? "local",
   });
+  useBranchStore.getState().setDarkMode(settings.darkMode ?? false);
 
   if (existing) {
     conversationId = existing.id;

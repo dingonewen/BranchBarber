@@ -1,6 +1,6 @@
 import type { Platform } from "./selectors";
 import { getUserTurns, getConversationUrl } from "./selectors";
-import { db } from "../db";
+import { db, saveSettings } from "../db";
 import { useBranchStore } from "../store";
 
 let _platform: Platform = "unknown";
@@ -26,7 +26,15 @@ export function initNavigator(platform: Platform): void {
   try { chrome.runtime?.id; } catch { return; } // context already gone
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === "GET_STATUS") {
-      sendResponse({ status: "active" });
+      const dark = useBranchStore.getState().darkMode;
+      sendResponse({ status: "active", darkMode: dark });
+      return false;
+    }
+    if (message.type === "SET_DARK_MODE") {
+      const dark = !!message.dark;
+      useBranchStore.getState().setDarkMode(dark);
+      saveSettings({ darkMode: dark });
+      sendResponse({ ok: true });
       return false;
     }
     if (message.type === "SHOW_SIDEBAR") {
