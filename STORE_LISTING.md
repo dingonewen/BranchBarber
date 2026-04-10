@@ -72,9 +72,7 @@ Enable AI mode in Settings and add your own Gemini API key to generate 8-word AI
 PERMISSIONS EXPLAINED
 ────────────────────────────────────────
 
-• storage — saves your tree, settings, and node data locally in IndexedDB
 • activeTab — reads the current tab's URL to associate the tree with the right conversation
-• scripting — injects the sidebar and node buttons into ChatGPT and Gemini pages
 • alarms — keeps the background service worker alive for reliable embedding processing
 • offscreen — runs the on-device ML embedding model in a hidden page (required by Chrome MV3 for WebAssembly)
 
@@ -146,9 +144,7 @@ The Developer Dashboard will ask you to justify each permission. Use these:
 
 | Permission | Justification |
 |-----------|--------------|
-| `storage` | Stores conversation tree nodes, layout positions, drift scores, and user settings (drift threshold, API key) in the browser's IndexedDB via Dexie.js. All data is local — nothing is sent to external servers. |
 | `activeTab` | Reads the current tab's URL to associate the conversation tree with the correct conversation and detect URL changes when the user navigates to a new chat. |
-| `scripting` | Injects the sidebar React application and "Branch Here" buttons into ChatGPT and Gemini pages. Required to display the visual tree interface overlaid on the chat page. |
 | `alarms` | Creates a periodic keepalive alarm to prevent the Chrome MV3 service worker from going to sleep during long conversations, ensuring the embedding pipeline remains available. |
 | `offscreen` | Required by Chrome Manifest V3 to run WebAssembly workloads. An offscreen document loads and runs the all-MiniLM-L6-v2 sentence embedding model entirely on-device for semantic drift detection. |
 

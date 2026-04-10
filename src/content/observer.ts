@@ -25,6 +25,7 @@ let platform: Platform = "unknown";
 let conversationId: string = "";
 let mutationObserver: MutationObserver | null = null;
 let processedCount = 0;
+let isInitializing = false;
 
 // ── Layout tracking ───────────────────────────────────────────────────────────
 // Positions are parent-relative: each node is placed directly below its parent
@@ -100,6 +101,7 @@ function clearAllButtons(): void {
 }
 
 async function initConversation(): Promise<void> {
+  isInitializing = true;
   const url = getConversationUrl();
   clearAllButtons();
   useBranchStore.getState().clearConversation();
@@ -138,6 +140,7 @@ async function initConversation(): Promise<void> {
     processedCount = 0;
     resetLayout();
   }
+  isInitializing = false;
 }
 
 function startMutationObserver(): void {
@@ -154,8 +157,9 @@ function startMutationObserver(): void {
   const urlObserver = new MutationObserver(() => {
     if (window.location.href !== lastUrl) {
       lastUrl = window.location.href;
-      processedCount = 0;
-      initConversation().then(tryAttach);
+      // Do NOT reset processedCount here — initConversation will set it correctly
+      // after loading existing nodes. Resetting it prematurely causes duplicate node creation.
+      initConversation().then(() => { tryAttach(); scanAndProcessTurns(); });
     }
   });
   urlObserver.observe(document.body, { childList: true, subtree: true });
@@ -166,7 +170,7 @@ const handleMutations = (): void => { scanAndProcessTurns(); };
 
 async function scanAndProcessTurns(): Promise<void> {
   if (!isContextValid()) return;
-  if (isScanning) return;
+  if (isScanning || isInitializing) return;
   isScanning = true;
   try {
     await _doScan();

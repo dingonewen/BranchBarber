@@ -4,9 +4,7 @@
   "version": "1.0.0",
   "description": "Visual conversation tree for ChatGPT and Gemini - track context drift and navigate your thinking.",
   "permissions": [
-    "storage",
     "activeTab",
-    "scripting",
     "alarms",
     "offscreen"
   ],
