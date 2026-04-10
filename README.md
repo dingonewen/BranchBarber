@@ -8,7 +8,7 @@
 
 **Branch Barber** is a Chrome Extension that transforms linear AI chat logs into a live, interactive **Conversation Tree**. It automatically detects when your conversation drifts to a new topic, visualizes that drift as a branch in a node graph, and gives you precise tools to navigate, reorganize, and annotate your thinking in real time.
 
-Supported platforms: **ChatGPT** (chatgpt.com, chat.openai.com) and **Google Gemini** (gemini.google.com).
+Supported platforms: **ChatGPT** (chatgpt.com, chat.openai.com) and **Google Gemini** (gemini.google.com). Light and dark mode supported (Catppuccin Latte / Mocha).
 
 <p align="center">
   <img src="public/gif_demo.gif" width="720" alt="Branch Barber live demo" />
@@ -86,19 +86,22 @@ src/
 │   ├── index.tsx            # Popup entry point
 │   └── PopupApp.tsx         # "Open Tree" / "New Tree" popup UI
 ├── store/
-│   └── index.ts             # Zustand store — nodes, layout, undo stack, settings;
+│   └── index.ts             # Zustand store — nodes, layout, undo stack, settings, darkMode;
 │                            # actions: addNode, markAsBranch, unmarkBranch, shiftSubtree,
 │                            # reparentNode, isolateNode, removeNode, pushUndo, undo,
-│                            # bumpLayoutKey, updateNodeLabel, loadNodes, clearConversation
+│                            # bumpLayoutKey, updateNodeLabel, loadNodes, clearConversation,
+│                            # setDarkMode
 ├── db/
 │   └── index.ts             # Dexie v1 schema: nodes, conversations, settings tables
 │                            # upsertNode, getConversationNodes, saveSettings, getOrCreateSettings
+│                            # AppSettings includes: driftThreshold, summaryMode, darkMode, geminiApiKey
 ├── utils/
 │   ├── index.ts             # generateId, cosineSimilarity, lexicalDrift (TF-IDF), debounce
 │   └── gemini.ts            # summarizeWithGemini, inferGhostTopic — serial queue with
 │                            # exponential backoff retry on 429
 └── components/
-    ├── theme.ts             # Catppuccin Latte palette; branchColor(posX), branchBg(posX)
+    ├── theme.ts             # Catppuccin Latte (C) + Mocha (CM) palettes; tc(dark) palette switcher;
+    │                        # branchColor(posX, dark), branchBg(posX, dark)
     ├── Sidebar.tsx          # Sidebar shell — Shadow DOM, resize handle, tabs, dynamic legend
     ├── ConversationTree.tsx # React Flow canvas — node/edge building, watermark, magnetic snap,
     │                        # undo button, DB sync on undo, rescale layout listener
@@ -220,7 +223,8 @@ Branch colors are assigned by horizontal column (x position divided by node widt
 - [x] "✂ Branch Here" inline button on every AI response (Gemini-safe)
 - [x] Live-turn-only Gemini calls (prevents 429 on batch load)
 - [x] Serial Gemini queue with exponential backoff retry
-- [ ] **Resolve Gemini API rate limiting for paid-tier keys** — the Gemini 2.0 Flash free tier enforces 15 RPM; paid-tier support and adaptive rate detection are next
+- [x] Dark mode toggle (Catppuccin Latte ↔ Mocha) — persisted per site, synced between popup and sidebar
+- [ ] **AI node labels via Gemini API** — architecture in place (serial queue, retry logic, live-turn guard); blocked on rate-limiting fix for paid-tier keys
 - [ ] **Chrome Web Store release** — coming very soon
 - [ ] Dagre.js auto-layout option for large trees
 - [ ] Export tree as image or JSON
