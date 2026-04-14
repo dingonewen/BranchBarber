@@ -20,6 +20,18 @@ Supported platforms: **ChatGPT** (chatgpt.com, chat.openai.com) and **Google Gem
 
 ---
 
+## Install
+
+**Branch Barber is live on the Chrome Web Store — try it for free!**
+
+[![Available in the Chrome Web Store](https://storage.googleapis.com/web-dev-uploads/image/WlD8wC6g8khYWPJUsQceQkhXSlv1/HRs9MPufa1J1h5glNhut.png)](https://chromewebstore.google.com/detail/branch-barber/pancajifpbhmoajlpbnmoigjbdeghifl)
+
+[**→ Get Branch Barber on the Chrome Web Store**](https://chromewebstore.google.com/detail/branch-barber/pancajifpbhmoajlpbnmoigjbdeghifl)
+
+Welcome to Branch Barber! If you run into any issues, have feature requests, or just want to share your experience, feel free to leave a review on the Chrome Web Store or open an issue on this repo. Your feedback directly shapes what gets built next — it's genuinely appreciated.
+
+---
+
 ## The Problem: Context Drift in AI Conversations
 
 AI chat interfaces are linear. Real thinking is not. A session that starts with "Build a machine learning model" quickly spirals:
@@ -225,7 +237,7 @@ Branch colors are assigned by horizontal column (x position divided by node widt
 - [x] Serial Gemini queue with exponential backoff retry
 - [x] Dark mode toggle (Catppuccin Latte ↔ Mocha) — persisted per site, synced between popup and sidebar
 - [ ] **AI node labels via Gemini API** — architecture in place (serial queue, retry logic, live-turn guard); blocked on rate-limiting fix for paid-tier keys
-- [ ] **Chrome Web Store release** — coming very soon
+- [x] **Chrome Web Store release** — [live now!](https://chromewebstore.google.com/detail/branch-barber/pancajifpbhmoajlpbnmoigjbdeghifl)
 - [ ] Dagre.js auto-layout option for large trees
 - [ ] Export tree as image or JSON
 - [ ] Claude / GPT API key support for node summarization
