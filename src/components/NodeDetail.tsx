@@ -235,7 +235,7 @@ export function NodeDetail() {
       )}
 
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {!isGhost && btn("👁 View", () => window.postMessage({ type: "BRANCHBARBER_SCROLL_TO", domIndex: node.domIndex }, "*"))}
+        {!isGhost && btn("👁 View", () => window.dispatchEvent(new CustomEvent("bb-scroll-to", { detail: { domIndex: node.domIndex } })))}
 
         {/* Detach: splice out of chain */}
         {!isGhost && node.status !== "root" && node.parentId !== null &&

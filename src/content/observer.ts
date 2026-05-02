@@ -2,7 +2,6 @@ import { debounce, generateId, cosineSimilarity, lexicalDrift } from "../utils";
 import type { Platform } from "./selectors";
 import {
   detectPlatform,
-  getConversationContainer,
   getUserTurns,
   getAITurns,
   extractText,
@@ -38,6 +37,7 @@ let mainBranchCurrentId: string | null = null;
 function resetLayout(): void {
   mainBranchCurrentId = null;
   isScanning = false;
+  if (pendingRetry) { clearTimeout(pendingRetry); pendingRetry = null; }
 }
 
 function rebuildLayoutFromNodes(nodes: ConversationNode[]): void {
@@ -102,55 +102,59 @@ function clearAllButtons(): void {
 
 async function initConversation(): Promise<void> {
   isInitializing = true;
-  const url = getConversationUrl();
-  clearAllButtons();
-  useBranchStore.getState().clearConversation();
+  try {
+    const url = getConversationUrl();
+    clearAllButtons();
+    useBranchStore.getState().clearConversation();
 
-  const [existing, settings] = await Promise.all([
-    getConversationByUrl(url),
-    getOrCreateSettings(),
-  ]);
+    const [existing, settings] = await Promise.all([
+      getConversationByUrl(url),
+      getOrCreateSettings(),
+    ]);
 
-  useBranchStore.getState().setSettings({
-    geminiApiKey: settings.geminiApiKey,
-    driftThreshold: settings.driftThreshold,
-    autoDetectBranches: settings.autoDetectBranches,
-    summaryMode: settings.summaryMode ?? "local",
-  });
-  useBranchStore.getState().setDarkMode(settings.darkMode ?? false);
+    useBranchStore.getState().setSettings({
+      geminiApiKey: settings.geminiApiKey,
+      driftThreshold: settings.driftThreshold,
+      autoDetectBranches: settings.autoDetectBranches,
+      summaryMode: settings.summaryMode ?? "local",
+    });
+    useBranchStore.getState().setDarkMode(settings.darkMode ?? false);
 
-  if (existing) {
-    conversationId = existing.id;
-    useBranchStore.getState().setConversation(conversationId, existing);
-    const nodes = await getConversationNodes(conversationId);
-    useBranchStore.getState().loadNodes(nodes);
-    processedCount = nodes.filter((n) => !n.isGhost).length;
-    rebuildLayoutFromNodes(nodes);
-    // Inject buttons after DOM is ready, then keep checking in case Angular re-renders wipe them
-    setTimeout(reinjectButtons, 500);
-    setTimeout(reinjectButtons, 2000);
-  } else {
-    conversationId = generateId();
-    const meta: ConversationMeta = {
-      id: conversationId, url, title: getConversationTitle(),
-      rootNodeId: null, currentNodeId: null,
-      createdAt: Date.now(), updatedAt: Date.now(),
-    };
-    await upsertConversation(meta);
-    useBranchStore.getState().setConversation(conversationId, meta);
-    processedCount = 0;
-    resetLayout();
+    if (existing) {
+      conversationId = existing.id;
+      useBranchStore.getState().setConversation(conversationId, existing);
+      const nodes = await getConversationNodes(conversationId);
+      useBranchStore.getState().loadNodes(nodes);
+      processedCount = nodes.filter((n) => !n.isGhost).length;
+      rebuildLayoutFromNodes(nodes);
+      setTimeout(reinjectButtons, 500);
+      setTimeout(reinjectButtons, 2000);
+    } else {
+      conversationId = generateId();
+      const meta: ConversationMeta = {
+        id: conversationId, url, title: getConversationTitle(),
+        rootNodeId: null, currentNodeId: null,
+        createdAt: Date.now(), updatedAt: Date.now(),
+      };
+      await upsertConversation(meta);
+      useBranchStore.getState().setConversation(conversationId, meta);
+      processedCount = 0;
+      resetLayout();
+    }
+  } finally {
+    // Always release the lock — if any await above throws, scans must not be
+    // permanently blocked.
+    isInitializing = false;
   }
-  isInitializing = false;
 }
 
 function startMutationObserver(): void {
   const tryAttach = (): void => {
-    const container = getConversationContainer(platform);
-    const target = container ?? document.body;
     mutationObserver?.disconnect();
     mutationObserver = new MutationObserver(debounce(handleMutations, 800) as MutationCallback);
-    mutationObserver.observe(target, { childList: true, subtree: true });
+    // Always observe document.body — Gemini's Angular can replace the chat container
+    // element entirely, which would silently kill an observer targeting it.
+    mutationObserver.observe(document.body, { childList: true, subtree: true });
   };
   tryAttach();
 
@@ -167,11 +171,19 @@ function startMutationObserver(): void {
 }
 
 let isScanning = false;
+let pendingRetry: ReturnType<typeof setTimeout> | null = null;
 const handleMutations = (): void => { scanAndProcessTurns(); };
 
 async function scanAndProcessTurns(): Promise<void> {
   if (!isContextValid()) return;
-  if (isScanning || isInitializing) return;
+  if (isScanning || isInitializing) {
+    // Schedule a retry so a new turn isn't permanently missed if no further
+    // mutations arrive after the current scan finishes.
+    if (!pendingRetry) {
+      pendingRetry = setTimeout(() => { pendingRetry = null; scanAndProcessTurns(); }, 1000);
+    }
+    return;
+  }
   isScanning = true;
   try {
     await _doScan();

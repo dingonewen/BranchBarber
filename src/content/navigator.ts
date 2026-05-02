@@ -1,5 +1,5 @@
 import type { Platform } from "./selectors";
-import { getUserTurns, getConversationUrl } from "./selectors";
+import { getUserTurns, getAITurns, getConversationUrl } from "./selectors";
 import { db, saveSettings } from "../db";
 import { useBranchStore } from "../store";
 
@@ -8,13 +8,16 @@ let _platform: Platform = "unknown";
 export function initNavigator(platform: Platform): void {
   _platform = platform;
 
+  // CustomEvent-based scroll: fired by NodeDetail "View" button
+  window.addEventListener("bb-scroll-to", (e) => {
+    const { domIndex } = (e as CustomEvent<{ domIndex: number }>).detail;
+    if (typeof domIndex === "number") scrollToTurn(domIndex);
+  });
+
   window.addEventListener("message", (event) => {
     if (event.source !== (window as unknown as MessageEventSource)) return;
     const { type, domIndex } = event.data ?? {};
 
-    if (type === "BRANCHBARBER_SCROLL_TO" && typeof domIndex === "number") {
-      scrollToTurn(domIndex);
-    }
     if (type === "BRANCHBARBER_RESET_TO" && typeof domIndex === "number") {
       resetToTurn(domIndex);
     }
@@ -72,9 +75,12 @@ function showSidebar(): void {
 }
 
 function scrollToTurn(domIndex: number): void {
-  const target = getUserTurns(_platform)[domIndex] as HTMLElement | undefined;
+  // Gemini lazy-loads older messages — user turn may not be in DOM yet; fall back to AI element
+  const userEl = getUserTurns(_platform)[domIndex] as HTMLElement | undefined;
+  const aiEl   = getAITurns(_platform)[domIndex]   as HTMLElement | undefined;
+  const target = userEl ?? aiEl;
   if (!target) return;
-  target.scrollIntoView({ behavior: "smooth", block: "center" });
+  target.scrollIntoView({ behavior: "instant", block: "center" });
   const prev = target.style.outline;
   target.style.outline = "2px solid rgba(198,160,246,0.8)";
   target.style.borderRadius = "8px";

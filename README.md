@@ -236,7 +236,7 @@ Branch colors are assigned by horizontal column (x position divided by node widt
 - [x] Live-turn-only Gemini calls (prevents 429 on batch load)
 - [x] Serial Gemini queue with exponential backoff retry
 - [x] Dark mode toggle (Catppuccin Latte ↔ Mocha) — persisted per site, synced between popup and sidebar
-- [ ] **AI node labels via Gemini API** — architecture in place (serial queue, retry logic, live-turn guard); blocked on rate-limiting fix for paid-tier keys
+- [x] AI node labels via Gemini API — 8-word summaries via Gemini 2.0 Flash; 4.5s serial queue keeps calls within free-tier 15 RPM limit; exponential backoff retry on 429
 - [x] **Chrome Web Store release** — [live now!](https://chromewebstore.google.com/detail/branch-barber/pancajifpbhmoajlpbnmoigjbdeghifl)
 - [ ] Dagre.js auto-layout option for large trees
 - [ ] Export tree as image or JSON

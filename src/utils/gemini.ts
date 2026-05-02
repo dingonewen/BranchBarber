@@ -5,7 +5,7 @@ const GEMINI_API_URL =
 let ghostQueue: Promise<void> = Promise.resolve();
 let nodeQueue:  Promise<void> = Promise.resolve();
 let lastCallTime = 0;
-const MIN_GAP_MS = 1000; // 1s gap = ~60 RPM, safe for paid; free tier may 429 but will retry
+const MIN_GAP_MS = 4500; // 4.5s gap = ~13 RPM, stays under the free-tier 15 RPM limit
 
 function enqueue(queue: "ghost" | "node", fn: () => Promise<string>): Promise<string> {
   const run = async (): Promise<string> => {
@@ -52,7 +52,7 @@ async function callGeminiRaw(prompt: string, apiKey: string): Promise<string> {
 
 // Retry up to 3 times with exponential backoff on 429
 async function callGeminiWithRetry(prompt: string, apiKey: string): Promise<string> {
-  let delay = 5000;
+  let delay = 10000; // 10s first backoff, 20s second — matches free-tier RPM reset window
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await callGeminiRaw(prompt, apiKey);
