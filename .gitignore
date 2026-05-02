@@ -2,3 +2,13 @@ node_modules/
 dist/
 *.log
 .DS_Store
+
+# Editor / tool config
+.vscode/
+.claude/
+
+# Duplicate / accidental files
+package_lock.json
+
+# Build artifacts
+*.zip
