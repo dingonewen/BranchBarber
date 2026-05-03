@@ -1,9 +1,10 @@
-export type Platform = "chatgpt" | "gemini" | "unknown";
+export type Platform = "chatgpt" | "gemini" | "claude" | "unknown";
 
 export function detectPlatform(): Platform {
   const host = window.location.hostname;
   if (host.includes("chatgpt.com") || host.includes("chat.openai.com")) return "chatgpt";
   if (host.includes("gemini.google.com")) return "gemini";
+  if (host.includes("claude.ai")) return "claude";
   return "unknown";
 }
 
@@ -24,6 +25,9 @@ export function getConversationContainer(platform: Platform): Element | null {
       document.body
     );
   }
+  if (platform === "claude") {
+    return document.querySelector("main") ?? null;
+  }
   return null;
 }
 
@@ -42,6 +46,11 @@ export function getUserTurns(platform: Platform): Element[] {
     // Fallback: message-content inside conversation-turn
     return Array.from(document.querySelectorAll(".conversation-turn .query-text, .user-query-bubble-with-footer"));
   }
+  if (platform === "claude") {
+    const byTestId = document.querySelectorAll('[data-testid="user-message"]');
+    if (byTestId.length > 0) return Array.from(byTestId);
+    return Array.from(document.querySelectorAll(".font-user-message"));
+  }
   return [];
 }
 
@@ -56,6 +65,9 @@ export function getAITurns(platform: Platform): Element[] {
     const byTag = document.querySelectorAll("model-response");
     if (byTag.length > 0) return Array.from(byTag);
     return Array.from(document.querySelectorAll(".model-response-text, .response-container"));
+  }
+  if (platform === "claude") {
+    return Array.from(document.querySelectorAll(".standard-markdown"));
   }
   return [];
 }
@@ -87,6 +99,13 @@ export function getInputElement(platform: Platform): HTMLElement | null {
     return (
       (document.querySelector(".ql-editor") as HTMLElement) ??
       (document.querySelector("rich-textarea [contenteditable]") as HTMLElement) ??
+      null
+    );
+  }
+  if (platform === "claude") {
+    return (
+      (document.querySelector('div[contenteditable="true"].ProseMirror') as HTMLElement) ??
+      (document.querySelector('div[contenteditable="true"][data-testid]') as HTMLElement) ??
       null
     );
   }

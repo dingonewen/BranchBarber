@@ -19,6 +19,7 @@ import {
 import type { ConversationNode, ConversationMeta } from "../db";
 import { useBranchStore } from "../store";
 import { summarizeWithGemini, inferGhostTopic } from "../utils/gemini";
+import { summarizeWithClaude, inferGhostTopicClaude } from "../utils/claude";
 
 let platform: Platform = "unknown";
 let conversationId: string = "";
@@ -114,6 +115,7 @@ async function initConversation(): Promise<void> {
 
     useBranchStore.getState().setSettings({
       geminiApiKey: settings.geminiApiKey,
+      claudeApiKey: settings.claudeApiKey ?? "",
       driftThreshold: settings.driftThreshold,
       autoDetectBranches: settings.autoDetectBranches,
       summaryMode: settings.summaryMode ?? "local",
@@ -282,14 +284,23 @@ async function _doScan(): Promise<void> {
       await upsertNode(ghostNode);
       useBranchStore.getState().addNode(ghostNode);
 
-      if (isLiveTurn && (settings.summaryMode ?? "local") === "gemini" && settings.geminiApiKey && branchFromId) {
-        db.nodes.get(branchFromId).then((n) => {
-          if (!n) return;
-          inferGhostTopic(`${n.prompt}\n\n${n.response}`.slice(0, 600), settings.geminiApiKey).then((label) => {
-            db.nodes.update(ghostId, { label, summary: label });
-            useBranchStore.getState().updateNodeLabel(ghostId, label);
+      if (isLiveTurn && branchFromId) {
+        const mode = settings.summaryMode ?? "local";
+        const useGeminiGhost = mode === "gemini" && !!settings.geminiApiKey;
+        const useClaudeGhost = mode === "claude" && !!(settings.claudeApiKey ?? "");
+        if (useGeminiGhost || useClaudeGhost) {
+          db.nodes.get(branchFromId).then((n) => {
+            if (!n) return;
+            const ctx = `${n.prompt}\n\n${n.response}`.slice(0, 600);
+            const labelPromise = useGeminiGhost
+              ? inferGhostTopic(ctx, settings.geminiApiKey)
+              : inferGhostTopicClaude(ctx, settings.claudeApiKey ?? "");
+            labelPromise.then((label) => {
+              db.nodes.update(ghostId, { label, summary: label });
+              useBranchStore.getState().updateNodeLabel(ghostId, label);
+            });
           });
-        });
+        }
       }
 
       // New node = right child; it becomes the new main-thread tip (tree keeps going right)
@@ -308,7 +319,9 @@ async function _doScan(): Promise<void> {
     }
 
     const fallbackLabel = prompt.slice(0, 60) + (prompt.length > 60 ? "..." : "");
-    const useGemini     = (settings.summaryMode ?? "local") === "gemini" && !!settings.geminiApiKey;
+    const mode          = settings.summaryMode ?? "local";
+    const useGemini     = mode === "gemini" && !!settings.geminiApiKey;
+    const useClaude     = mode === "claude" && !!(settings.claudeApiKey ?? "");
 
     const node: ConversationNode = {
       id: nodeId, conversationId,
@@ -329,8 +342,12 @@ async function _doScan(): Promise<void> {
 
     useBranchStore.getState().addNode(node);
 
-    if (useGemini && isLiveTurn) {
-      summarizeWithGemini(prompt, response, settings.geminiApiKey).then((summary) => {
+    if (isLiveTurn && (useGemini || useClaude)) {
+      console.log("[BranchBarber] Requesting AI summary — mode:", settings.summaryMode, "node:", nodeId);
+      const summarize = useGemini
+        ? summarizeWithGemini(prompt, response, settings.geminiApiKey)
+        : summarizeWithClaude(prompt, response, settings.claudeApiKey ?? "");
+      summarize.then((summary) => {
         if (summary && summary !== fallbackLabel) {
           db.nodes.update(nodeId, { label: summary, summary });
           useBranchStore.getState().updateNodeLabel(nodeId, summary);

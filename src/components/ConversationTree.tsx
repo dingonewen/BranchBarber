@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -7,10 +7,12 @@ import ReactFlow, {
   useEdgesState,
   type Node,
   type Edge,
+  type ReactFlowInstance,
   BackgroundVariant,
   MarkerType,
 } from "reactflow";
 import "reactflow/dist/style.css";
+import Dagre from "@dagrejs/dagre";
 import { useBranchStore, getSubtreeIds } from "../store";
 import type { TreeNode } from "../store";
 import type { ConversationNode } from "../db";
@@ -23,7 +25,7 @@ function safeGetURL(path: string): string {
 }
 
 const NODE_TYPES = { treeNode: TreeNodeComponent };
-const SNAP_DIST  = 90;   // px — magnetic snap radius
+const SNAP_DIST  = 90;
 const NODE_W     = 240;
 const NODE_H     = 130;
 
@@ -41,19 +43,49 @@ function treeNodeToDbNode(n: TreeNode, conversationId: string): ConversationNode
   };
 }
 
+function computeDagrePositions(
+  storeNodes: Record<string, TreeNode>
+): Record<string, { x: number; y: number }> {
+  const g = new Dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: "TB", nodesep: 40, ranksep: 60, marginx: 20, marginy: 20 });
+
+  for (const id of Object.keys(storeNodes)) {
+    g.setNode(id, { width: NODE_W, height: NODE_H });
+  }
+  for (const [id, n] of Object.entries(storeNodes)) {
+    if (n.parentId && storeNodes[n.parentId]) {
+      g.setEdge(n.parentId, id);
+    }
+  }
+
+  Dagre.layout(g);
+
+  const positions: Record<string, { x: number; y: number }> = {};
+  for (const id of Object.keys(storeNodes)) {
+    const node = g.node(id);
+    // Dagre centers nodes; ReactFlow positions from top-left corner
+    positions[id] = { x: node.x - NODE_W / 2, y: node.y - NODE_H / 2 };
+  }
+  return positions;
+}
+
 function buildFlowElements(
   storeNodes: Record<string, TreeNode>,
   selectedId: string | null,
-  dark: boolean
+  dark: boolean,
+  positionOverrides?: Record<string, { x: number; y: number }>
 ): { nodes: Node<TreeNode>[]; edges: Edge[] } {
   const nodes: Node<TreeNode>[] = [];
   const edges: Edge[] = [];
   const P = tc(dark);
 
   for (const [id, n] of Object.entries(storeNodes)) {
-    nodes.push({ id, type: "treeNode", position: n.position, data: n, selected: id === selectedId });
+    const pos = positionOverrides?.[id] ?? n.position;
+    nodes.push({ id, type: "treeNode", position: pos, data: n, selected: id === selectedId });
 
     if (n.parentId) {
+      // Use stored position.x for color so branch colors are stable in both layout modes
       const edgeColor = n.status === "ghost" ? P.surface1 : branchColor(n.position.x, dark);
       edges.push({
         id: `e-${n.parentId}-${id}`,
@@ -97,29 +129,40 @@ export function ConversationTree() {
   const undoStack     = useBranchStore((s) => s.undoStack);
   const undoAction    = useBranchStore((s) => s.undo);
 
+  const [autoLayout, setAutoLayout] = useState(false);
+  const rfInstance = useRef<ReactFlowInstance | null>(null);
+
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
   const prevStructureRef = useRef("");
 
   useEffect(() => {
-    // Rebuild when: node IDs change, parentIds change (reparent), OR layoutKey bumped
-    // Include status + posX so any color/layout change triggers rebuild immediately
+    const positionOverrides = autoLayout ? computeDagrePositions(storeNodes) : undefined;
+
+    // Include autoLayout flag so toggling always triggers a rebuild
     const structure = Object.values(storeNodes)
       .map((n) => `${n.id}:${n.parentId ?? ""}:${n.status}:${n.position.x}`)
       .sort()
-      .join("|") + `@${layoutKey}`;
+      .join("|") + `@${layoutKey}@${autoLayout ? 1 : 0}`;
 
     if (structure !== prevStructureRef.current) {
       prevStructureRef.current = structure;
-      const { nodes: n, edges: e } = buildFlowElements(storeNodes, selectedId, dark);
+      const { nodes: n, edges: e } = buildFlowElements(storeNodes, selectedId, dark, positionOverrides);
       setNodes(n);
       setEdges(e);
     } else {
-      // Only selection changed — don't overwrite drag positions
       setNodes((prev) => prev.map((n) => ({ ...n, selected: n.id === selectedId })));
     }
-  }, [storeNodes, selectedId, layoutKey, dark, setNodes, setEdges]);
+  }, [storeNodes, selectedId, layoutKey, dark, autoLayout, setNodes, setEdges]);
+
+  const toggleAutoLayout = useCallback(() => {
+    setAutoLayout((v) => {
+      const next = !v;
+      if (next) setTimeout(() => rfInstance.current?.fitView({ padding: 0.3 }), 50);
+      return next;
+    });
+  }, []);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node<TreeNode>) => {
@@ -136,21 +179,18 @@ export function ConversationTree() {
 
     const restoredNodes = useBranchStore.getState().nodes;
 
-    // Nodes re-appearing after undo (were deleted by undone action) → re-insert in DB
     for (const [id, n] of Object.entries(restoredNodes)) {
       if (!prevNodes[id]) {
         await db.nodes.put(treeNodeToDbNode(n, conversationId));
       }
     }
 
-    // Nodes that no longer exist after undo (were added by undone action) → delete from DB
     for (const id of Object.keys(prevNodes)) {
       if (!restoredNodes[id]) {
         await db.nodes.delete(id);
       }
     }
 
-    // Nodes present in both → update mutable fields in DB
     for (const [id, n] of Object.entries(restoredNodes)) {
       if (prevNodes[id]) {
         await db.nodes.update(id, {
@@ -166,10 +206,9 @@ export function ConversationTree() {
     bumpLayoutKey();
   }, [conversationId, undoAction, bumpLayoutKey]);
 
-  // ── Magnetic snap ────────────────────────────────────────────────────────
+  // ── Magnetic snap (disabled in auto-layout mode) ──────────────────────────
   const onNodeDragStop = useCallback(
     (_: React.MouseEvent, draggedNode: Node<TreeNode>) => {
-      // Don't snap ghost nodes
       if (draggedNode.data.status === "ghost") return;
 
       const dragPos = draggedNode.position;
@@ -190,7 +229,6 @@ export function ConversationTree() {
 
       if (!nearest) return;
 
-      // Place as next child of nearest, below and to the right of existing children
       const existingChildren = Object.values(storeNodes).filter(
         (n) => n.parentId === nearest!.id && n.id !== draggedNode.id
       );
@@ -199,20 +237,16 @@ export function ConversationTree() {
         : nearest.position.x - NODE_W;
       const snapPos = { x: maxChildX + NODE_W, y: nearest.position.y + NODE_H };
 
-      // Calculate delta from original STORED position (not current drag position)
       const origPos = storeNodes[draggedNode.id]?.position ?? dragPos;
       const dx = snapPos.x - origPos.x;
       const dy = snapPos.y - origPos.y;
 
-      // Collect subtree IDs before store updates
       const subtreeIds = getSubtreeIds(storeNodes, draggedNode.id);
 
-      // Update store: shift positions + reparent
       shiftSubtree(draggedNode.id, dx, dy);
       reparentNode(draggedNode.id, nearest.id);
       bumpLayoutKey();
 
-      // Update DB asynchronously
       db.nodes.update(draggedNode.id, { parentId: nearest.id, position: snapPos });
       for (const id of subtreeIds) {
         if (id === draggedNode.id) continue;
@@ -258,21 +292,22 @@ export function ConversationTree() {
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
-        onNodeDragStop={onNodeDragStop}
+        onNodeDragStop={autoLayout ? undefined : onNodeDragStop}
+        onInit={(instance) => { rfInstance.current = instance; }}
         nodeTypes={NODE_TYPES}
         fitView
         fitViewOptions={{ padding: 0.3 }}
         minZoom={0.2}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
-        nodesDraggable={true}
+        nodesDraggable={!autoLayout}
         nodesConnectable={false}
         elementsSelectable={true}
       >
         <Background variant={BackgroundVariant.Dots} gap={16} size={1} color={P.surface0} />
         <Controls showInteractive={false} position="bottom-right"
           style={{ background: P.surface0, border: `1px solid ${P.surface1}`, borderRadius: 8 }} />
-        <Panel position="bottom-left">
+        <Panel position="bottom-left" style={{ display: "flex", gap: 6 }}>
           <button
             onClick={handleUndo}
             disabled={undoStack.length === 0}
@@ -288,6 +323,21 @@ export function ConversationTree() {
             }}
           >
             ↩ Undo {undoStack.length > 0 && `(${undoStack.length})`}
+          </button>
+          <button
+            onClick={toggleAutoLayout}
+            title={autoLayout ? "Switch to manual layout" : "Apply Dagre auto-layout"}
+            style={{
+              display: "flex", alignItems: "center", gap: 5,
+              padding: "6px 10px", borderRadius: 8, border: "none", cursor: "pointer",
+              background: autoLayout ? P.mauve : P.surface1,
+              color: autoLayout ? (dark ? P.crust : "#fff") : P.subtext1,
+              fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+              transition: "background 0.15s, color 0.15s",
+            }}
+          >
+            ⊞ Auto
           </button>
         </Panel>
       </ReactFlow>

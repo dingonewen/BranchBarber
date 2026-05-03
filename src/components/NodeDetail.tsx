@@ -4,6 +4,7 @@ import type { ConversationNode } from "../db";
 import { generateId } from "../utils";
 import { tc, branchColor } from "./theme";
 import { inferGhostTopic } from "../utils/gemini";
+import { inferGhostTopicClaude } from "../utils/claude";
 
 const NODE_W = 240;
 const NODE_H = 130;
@@ -71,9 +72,15 @@ export function NodeDetail() {
 
     // Async: fill ghost label by summarising the direct parent node
     getOrCreateSettings().then((settings) => {
-      if ((settings.summaryMode ?? "local") !== "gemini" || !settings.geminiApiKey || !node.parentId) return;
+      const mode = settings.summaryMode ?? "local";
+      const useGemini = mode === "gemini" && !!settings.geminiApiKey;
+      const useClaude = mode === "claude" && !!(settings.claudeApiKey ?? "");
+      if ((!useGemini && !useClaude) || !node.parentId) return;
       const ctx = `${parent.prompt}\n\n${parent.response}`.slice(0, 600);
-      inferGhostTopic(ctx, settings.geminiApiKey).then((label) => {
+      const labelPromise = useGemini
+        ? inferGhostTopic(ctx, settings.geminiApiKey)
+        : inferGhostTopicClaude(ctx, settings.claudeApiKey ?? "");
+      labelPromise.then((label) => {
         if (!label) return;
         db.nodes.update(ghostId, { label, summary: label });
         useBranchStore.getState().updateNodeLabel(ghostId, label);

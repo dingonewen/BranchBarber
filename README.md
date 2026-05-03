@@ -8,7 +8,7 @@
 
 **Branch Barber** is a Chrome Extension that transforms linear AI chat logs into a live, interactive **Conversation Tree**. It automatically detects when your conversation drifts to a new topic, visualizes that drift as a branch in a node graph, and gives you precise tools to navigate, reorganize, and annotate your thinking in real time.
 
-Supported platforms: **ChatGPT** (chatgpt.com, chat.openai.com) and **Google Gemini** (gemini.google.com). Light and dark mode supported (Catppuccin Latte / Mocha).
+Supported platforms: **ChatGPT** (chatgpt.com, chat.openai.com), **Google Gemini** (gemini.google.com), and **Claude** (claude.ai). Light and dark mode supported (Catppuccin Latte / Mocha).
 
 <p align="center">
   <img src="public/gif_demo.gif" width="720" alt="Branch Barber live demo" />
@@ -91,7 +91,7 @@ src/
 │   ├── index.ts             # Entry point — mounts sidebar, wires bb-reset / bb-rescale listeners
 │   ├── observer.ts          # Core pipeline: MutationObserver → drift detection →
 │   │                        # node creation → DB write → store update → button injection
-│   ├── selectors.ts         # Platform-specific DOM selectors for ChatGPT and Gemini
+│   ├── selectors.ts         # Platform-specific DOM selectors for ChatGPT, Gemini, and Claude
 │   ├── navigator.ts         # Message handler: SHOW_SIDEBAR, RESET_TREE, scroll-to, reset-to
 │   └── sidebar-injector.ts  # Injects a Shadow DOM host and mounts the React sidebar
 ├── popup/
@@ -109,14 +109,16 @@ src/
 │                            # AppSettings includes: driftThreshold, summaryMode, darkMode, geminiApiKey
 ├── utils/
 │   ├── index.ts             # generateId, cosineSimilarity, lexicalDrift (TF-IDF), debounce
-│   └── gemini.ts            # summarizeWithGemini, inferGhostTopic — serial queue with
-│                            # exponential backoff retry on 429
+│   ├── gemini.ts            # summarizeWithGemini, inferGhostTopic — serial queue with
+│   │                        # exponential backoff retry on 429
+│   └── claude.ts            # summarizeWithClaude, inferGhostTopicClaude — proxied through
+│                            # background service worker to bypass CORS on api.anthropic.com
 └── components/
     ├── theme.ts             # Catppuccin Latte (C) + Mocha (CM) palettes; tc(dark) palette switcher;
     │                        # branchColor(posX, dark), branchBg(posX, dark)
     ├── Sidebar.tsx          # Sidebar shell — Shadow DOM, resize handle, tabs, dynamic legend
     ├── ConversationTree.tsx # React Flow canvas — node/edge building, watermark, magnetic snap,
-    │                        # undo button, DB sync on undo, rescale layout listener
+    │                        # undo button, DB sync on undo, Dagre auto-layout toggle
     ├── TreeNode.tsx         # Custom node renderer — drift bar, status badge, column colors
     ├── NodeDetail.tsx       # Selected-node inspector — prompt, AI preview, branch/unbranch/
     │                        # detach/delete/ghost-delete actions, full undo integration
@@ -210,10 +212,10 @@ Branch colors are assigned by horizontal column (x position divided by node widt
 | Language | TypeScript (strict) |
 | UI framework | React 18 |
 | State management | Zustand |
-| Tree visualization | React Flow |
+| Tree visualization | React Flow · Dagre (auto-layout) |
 | Local persistence | Dexie.js (IndexedDB) |
 | On-device embeddings | Transformers.js · `all-MiniLM-L6-v2` · WASM |
-| Optional summarization | Gemini 2.0 Flash API |
+| Optional summarization | Gemini 2.0 Flash API · Claude Haiku (Anthropic API) |
 | Build | Webpack 5 (multi-entry MV3 config) |
 | Extension API | Chrome Manifest V3 |
 
@@ -238,9 +240,9 @@ Branch colors are assigned by horizontal column (x position divided by node widt
 - [x] Dark mode toggle (Catppuccin Latte ↔ Mocha) — persisted per site, synced between popup and sidebar
 - [x] AI node labels via Gemini API — 8-word summaries via Gemini 2.0 Flash; 4.5s serial queue keeps calls within free-tier 15 RPM limit; exponential backoff retry on 429
 - [x] **Chrome Web Store release** — [live now!](https://chromewebstore.google.com/detail/branch-barber/pancajifpbhmoajlpbnmoigjbdeghifl)
-- [ ] Dagre.js auto-layout option for large trees
+- [x] Claude / Anthropic API key support for node summarization — Claude Haiku via background service worker proxy (bypasses CORS); 1s serial queue with exponential backoff retry on 429
+- [x] Dagre.js auto-layout — "⊞ Auto" toggle in the tree view; reflows all nodes via dagre TB ranking; dragging disabled while active, stored positions untouched
 - [ ] Export tree as image or JSON
-- [ ] Claude / GPT API key support for node summarization
 - [ ] Cross-device sync via optional cloud backend
 
 ---
@@ -249,7 +251,7 @@ Branch colors are assigned by horizontal column (x position divided by node widt
 
 - All conversation data (prompts, responses, embeddings, positions) is stored **locally** in your browser's IndexedDB via Dexie.js.
 - The embedding model runs entirely **on-device** via WebAssembly. No text is sent to any server for embedding.
-- The only optional network call is to the **Gemini API** for label generation, and only when you provide an API key. The request includes up to 500 characters of your prompt and response.
+- The only optional network calls are to the **Gemini API** or **Anthropic API** for label generation, and only when you provide an API key and select that mode. Requests include up to 500 characters of your prompt and response.
 - No telemetry, no analytics, no external logging of any kind.
 
 ---

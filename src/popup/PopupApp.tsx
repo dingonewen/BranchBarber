@@ -3,7 +3,7 @@ import { C, CM } from "../components/theme";
 
 type Status = "idle" | "active" | "loading";
 
-const SUPPORTED_HOSTS = ["chatgpt.com", "chat.openai.com", "gemini.google.com"];
+const SUPPORTED_HOSTS = ["chatgpt.com", "chat.openai.com", "gemini.google.com", "claude.ai"];
 
 function safeGetURL(path: string): string {
   try { return chrome.runtime.getURL(path); } catch { return ""; }
@@ -78,7 +78,7 @@ export function PopupApp() {
     status === "active"  ? "Active on this page" :
     status === "loading" ? "Checking..." :
     isSupported          ? "Not yet active" :
-    "Navigate to ChatGPT or Gemini";
+    "Navigate to ChatGPT, Gemini, or Claude";
 
   const P = dark ? CM : C;
 

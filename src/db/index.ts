@@ -33,11 +33,12 @@ export interface ConversationMeta {
 export interface AppSettings {
   id: string;
   geminiApiKey: string;
+  claudeApiKey: string;
   driftThreshold: number;
   autoDetectBranches: boolean;
   showSidebar: boolean;
   sidebarPosition: "left" | "right";
-  summaryMode: "gemini" | "local";
+  summaryMode: "gemini" | "claude" | "local";
   darkMode: boolean;
 }
 
@@ -64,6 +65,7 @@ export async function getOrCreateSettings(): Promise<AppSettings> {
   const defaults: AppSettings = {
     id: "default",
     geminiApiKey: "",
+    claudeApiKey: "",
     driftThreshold: 0.80,
     autoDetectBranches: true,
     showSidebar: true,
