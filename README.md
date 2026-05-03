@@ -242,8 +242,8 @@ Branch colors are assigned by horizontal column (x position divided by node widt
 - [x] **Chrome Web Store release** — [live now!](https://chromewebstore.google.com/detail/branch-barber/pancajifpbhmoajlpbnmoigjbdeghifl)
 - [x] Claude / Anthropic API key support for node summarization — Claude Haiku via background service worker proxy (bypasses CORS); 1s serial queue with exponential backoff retry on 429
 - [x] Dagre.js auto-layout — "⊞ Auto" toggle in the tree view; reflows all nodes via dagre TB ranking; dragging disabled while active, stored positions untouched
-- [ ] Export tree as image or JSON
-- [ ] Cross-device sync via optional cloud backend
+- [x] Export tree as image or JSON — "⬇ Export" dropdown in tree view; JSON includes all node data; PNG captures the canvas at 2× pixel ratio via html-to-image
+- *(Cross-device sync intentionally omitted — Branch Barber is local-first by design)*
 
 ---
 

@@ -13,6 +13,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import Dagre from "@dagrejs/dagre";
+import { toPng } from "html-to-image";
 import { useBranchStore, getSubtreeIds } from "../store";
 import type { TreeNode } from "../store";
 import type { ConversationNode } from "../db";
@@ -106,6 +107,15 @@ function buildFlowElements(
   return { nodes, edges };
 }
 
+function triggerDownload(href: string, filename: string): void {
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+}
+
 function isDescendantOf(nodes: Record<string, TreeNode>, nodeId: string, ancestorId: string): boolean {
   let n = nodes[nodeId];
   while (n?.parentId) {
@@ -130,7 +140,10 @@ export function ConversationTree() {
   const undoAction    = useBranchStore((s) => s.undo);
 
   const [autoLayout, setAutoLayout] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const rfInstance = useRef<ReactFlowInstance | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -163,6 +176,55 @@ export function ConversationTree() {
       return next;
     });
   }, []);
+
+  const exportJSON = useCallback(() => {
+    setShowExportMenu(false);
+    const snap = useBranchStore.getState();
+    const data = {
+      version: "1.0",
+      exportedAt: new Date().toISOString(),
+      conversationId: snap.conversationId,
+      nodes: Object.values(snap.nodes).map((n) => ({
+        id: n.id,
+        label: n.label,
+        prompt: n.prompt,
+        response: n.response,
+        summary: n.summary,
+        parentId: n.parentId,
+        status: n.status,
+        depth: n.depth,
+        driftScore: n.driftScore,
+        domIndex: n.domIndex,
+        position: n.position,
+      })),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    triggerDownload(url, `branch-barber-${snap.conversationId ?? "tree"}.json`);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }, []);
+
+  const exportPNG = useCallback(async () => {
+    if (!containerRef.current) return;
+    setShowExportMenu(false);
+    setExporting(true);
+    try {
+      const dataUrl = await toPng(containerRef.current, {
+        backgroundColor: P.base,
+        pixelRatio: 2,
+        // Strip UI chrome — export only the canvas + nodes + edges
+        filter: (el) => {
+          const cls = (el as HTMLElement).classList;
+          return !cls?.contains("react-flow__panel") && !cls?.contains("react-flow__controls");
+        },
+      });
+      triggerDownload(dataUrl, `branch-barber-${useBranchStore.getState().conversationId ?? "tree"}.png`);
+    } catch (e) {
+      console.error("[BranchBarber] PNG export failed:", e);
+    } finally {
+      setExporting(false);
+    }
+  }, [P.base]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node<TreeNode>) => {
@@ -272,7 +334,7 @@ export function ConversationTree() {
   }
 
   return (
-    <div style={{ width: "100%", height: "100%", position: "relative" }}>
+    <div ref={containerRef} style={{ width: "100%", height: "100%", position: "relative" }}>
       <img
         src={safeGetURL("icons/dizzy.png")}
         style={{
@@ -339,6 +401,58 @@ export function ConversationTree() {
           >
             ⊞ Auto
           </button>
+
+          {/* Export dropdown */}
+          <div style={{ position: "relative" }}>
+            <button
+              onClick={() => setShowExportMenu((v) => !v)}
+              disabled={exporting}
+              title="Export tree"
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                padding: "6px 10px", borderRadius: 8, border: "none",
+                cursor: exporting ? "default" : "pointer",
+                background: showExportMenu ? P.mauve : P.surface1,
+                color: showExportMenu ? (dark ? P.crust : "#fff") : P.subtext1,
+                fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+                boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+                transition: "background 0.15s, color 0.15s",
+                opacity: exporting ? 0.6 : 1,
+              }}
+            >
+              {exporting ? "…" : "⬇ Export"}
+            </button>
+            {showExportMenu && (
+              <div style={{
+                position: "absolute", bottom: "calc(100% + 6px)", left: 0,
+                background: P.mantle, border: `1px solid ${P.surface1}`,
+                borderRadius: 8, overflow: "hidden",
+                boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                minWidth: 130, zIndex: 10,
+              }}>
+                {[
+                  { label: "As JSON", action: exportJSON },
+                  { label: "As PNG", action: exportPNG },
+                ].map(({ label, action }) => (
+                  <button
+                    key={label}
+                    onClick={action}
+                    style={{
+                      display: "block", width: "100%",
+                      padding: "8px 14px", border: "none",
+                      background: "none", cursor: "pointer",
+                      textAlign: "left", fontSize: 11,
+                      color: P.text, fontFamily: "inherit",
+                    }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = P.surface0; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "none"; }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </Panel>
       </ReactFlow>
     </div>
