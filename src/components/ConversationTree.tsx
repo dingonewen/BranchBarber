@@ -18,6 +18,7 @@ import { useBranchStore, getSubtreeIds } from "../store";
 import type { TreeNode } from "../store";
 import type { ConversationNode } from "../db";
 import { TreeNodeComponent } from "./TreeNode";
+import { CollapsedNodeComponent, type CollapsedGroupData } from "./CollapsedNode";
 import { tc, branchColor } from "./theme";
 import { db } from "../db";
 
@@ -25,7 +26,7 @@ function safeGetURL(path: string): string {
   try { return chrome.runtime.getURL(path); } catch { return ""; }
 }
 
-const NODE_TYPES = { treeNode: TreeNodeComponent };
+const NODE_TYPES = { treeNode: TreeNodeComponent, collapsedGroup: CollapsedNodeComponent };
 const SNAP_DIST  = 90;
 const NODE_W     = 240;
 const NODE_H     = 130;
@@ -71,26 +72,93 @@ function computeDagrePositions(
   return positions;
 }
 
+// Returns Map<anchorId, nodeId[]> — maximal chains of "normal" nodes with no branching.
+// Only chains of length >= MIN_COLLAPSE_RUN are returned (shorter chains aren't worth collapsing).
+const MIN_COLLAPSE_RUN = 5;
+
+function computeCollapsibleRuns(
+  nodes: Record<string, TreeNode>
+): Map<string, string[]> {
+  const runs = new Map<string, string[]>();
+
+  for (const [id, node] of Object.entries(nodes)) {
+    if (node.status !== "normal") continue;
+    const parent = node.parentId ? nodes[node.parentId] : null;
+    if (parent?.status === "normal") continue; // not the start of a run
+
+    const run: string[] = [id];
+    let cur = node;
+    while (true) {
+      const nonGhostChildren = cur.children.filter((cid) => nodes[cid]?.status !== "ghost");
+      if (nonGhostChildren.length !== 1) break;
+      const next = nodes[nonGhostChildren[0]];
+      if (!next || next.status !== "normal") break;
+      run.push(nonGhostChildren[0]);
+      cur = next;
+    }
+
+    if (run.length >= MIN_COLLAPSE_RUN) runs.set(id, run);
+  }
+
+  return runs;
+}
+
 function buildFlowElements(
   storeNodes: Record<string, TreeNode>,
   selectedId: string | null,
   dark: boolean,
-  positionOverrides?: Record<string, { x: number; y: number }>
-): { nodes: Node<TreeNode>[]; edges: Edge[] } {
-  const nodes: Node<TreeNode>[] = [];
+  positionOverrides?: Record<string, { x: number; y: number }>,
+  collapsedGroups?: Set<string>,
+  runs?: Map<string, string[]>
+): { nodes: Node[]; edges: Edge[] } {
+  const nodes: Node[] = [];
   const edges: Edge[] = [];
   const P = tc(dark);
 
-  for (const [id, n] of Object.entries(storeNodes)) {
-    const pos = positionOverrides?.[id] ?? n.position;
-    nodes.push({ id, type: "treeNode", position: pos, data: n, selected: id === selectedId });
+  // Build hidden-node sets for any collapsed runs
+  const hiddenNodeIds = new Set<string>();
+  const hiddenToAnchor = new Map<string, string>(); // hidden id → anchor id
+  if (collapsedGroups && runs) {
+    for (const [anchorId, run] of runs) {
+      if (!collapsedGroups.has(anchorId)) continue;
+      for (let i = 1; i < run.length; i++) {
+        hiddenNodeIds.add(run[i]);
+        hiddenToAnchor.set(run[i], anchorId);
+      }
+    }
+  }
 
-    if (n.parentId) {
-      // Use stored position.x for color so branch colors are stable in both layout modes
+  for (const [id, n] of Object.entries(storeNodes)) {
+    if (hiddenNodeIds.has(id)) continue;
+
+    const pos = positionOverrides?.[id] ?? n.position;
+    const isCollapsedAnchor = !!collapsedGroups?.has(id) && !!runs?.has(id);
+
+    if (isCollapsedAnchor) {
+      const run = runs!.get(id)!;
+      const lastNode = storeNodes[run[run.length - 1]];
+      const groupData: CollapsedGroupData = {
+        anchorId: id,
+        count: run.length,
+        firstLabel: n.label || n.summary || "…",
+        lastLabel: lastNode.label || lastNode.summary || "…",
+        posX: n.position.x,
+      };
+      nodes.push({ id, type: "collapsedGroup", position: pos, data: groupData, selected: id === selectedId });
+    } else {
+      nodes.push({ id, type: "treeNode", position: pos, data: n, selected: id === selectedId });
+    }
+
+    // Reroute edges whose immediate parent is hidden to the anchor instead
+    const effectiveParentId = n.parentId
+      ? (hiddenToAnchor.get(n.parentId) ?? n.parentId)
+      : null;
+
+    if (effectiveParentId) {
       const edgeColor = n.status === "ghost" ? P.surface1 : branchColor(n.position.x, dark);
       edges.push({
-        id: `e-${n.parentId}-${id}`,
-        source: n.parentId,
+        id: `e-${effectiveParentId}-${id}`,
+        source: effectiveParentId,
         target: id,
         type: "smoothstep",
         animated: false,
@@ -126,18 +194,21 @@ function isDescendantOf(nodes: Record<string, TreeNode>, nodeId: string, ancesto
 }
 
 export function ConversationTree() {
-  const storeNodes    = useBranchStore((s) => s.nodes);
-  const selectedId    = useBranchStore((s) => s.selectedNodeId);
-  const dark          = useBranchStore((s) => s.darkMode);
-  const P             = tc(dark);
-  const layoutKey     = useBranchStore((s) => s.layoutKey);
-  const conversationId = useBranchStore((s) => s.conversationId);
-  const selectNode    = useBranchStore((s) => s.selectNode);
-  const shiftSubtree  = useBranchStore((s) => s.shiftSubtree);
-  const reparentNode  = useBranchStore((s) => s.reparentNode);
-  const bumpLayoutKey = useBranchStore((s) => s.bumpLayoutKey);
-  const undoStack     = useBranchStore((s) => s.undoStack);
-  const undoAction    = useBranchStore((s) => s.undo);
+  const storeNodes      = useBranchStore((s) => s.nodes);
+  const selectedId      = useBranchStore((s) => s.selectedNodeId);
+  const dark            = useBranchStore((s) => s.darkMode);
+  const P               = tc(dark);
+  const layoutKey       = useBranchStore((s) => s.layoutKey);
+  const conversationId  = useBranchStore((s) => s.conversationId);
+  const selectNode      = useBranchStore((s) => s.selectNode);
+  const shiftSubtree    = useBranchStore((s) => s.shiftSubtree);
+  const reparentNode    = useBranchStore((s) => s.reparentNode);
+  const bumpLayoutKey   = useBranchStore((s) => s.bumpLayoutKey);
+  const undoStack       = useBranchStore((s) => s.undoStack);
+  const undoAction      = useBranchStore((s) => s.undo);
+  const collapsedGroups = useBranchStore((s) => s.collapsedGroups);
+  const collapseAllRuns = useBranchStore((s) => s.collapseAllRuns);
+  const expandAllRuns   = useBranchStore((s) => s.expandAllRuns);
 
   const [autoLayout, setAutoLayout] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -151,23 +222,28 @@ export function ConversationTree() {
   const prevStructureRef = useRef("");
 
   useEffect(() => {
+    const runs = autoLayout ? new Map<string, string[]>() : computeCollapsibleRuns(storeNodes);
     const positionOverrides = autoLayout ? computeDagrePositions(storeNodes) : undefined;
 
-    // Include autoLayout flag so toggling always triggers a rebuild
+    const collapseHash = [...collapsedGroups].sort().join(",");
     const structure = Object.values(storeNodes)
       .map((n) => `${n.id}:${n.parentId ?? ""}:${n.status}:${n.position.x}`)
       .sort()
-      .join("|") + `@${layoutKey}@${autoLayout ? 1 : 0}`;
+      .join("|") + `@${layoutKey}@${autoLayout ? 1 : 0}@${collapseHash}`;
 
     if (structure !== prevStructureRef.current) {
       prevStructureRef.current = structure;
-      const { nodes: n, edges: e } = buildFlowElements(storeNodes, selectedId, dark, positionOverrides);
+      const { nodes: n, edges: e } = buildFlowElements(
+        storeNodes, selectedId, dark, positionOverrides,
+        autoLayout ? undefined : collapsedGroups,
+        autoLayout ? undefined : runs
+      );
       setNodes(n);
       setEdges(e);
     } else {
       setNodes((prev) => prev.map((n) => ({ ...n, selected: n.id === selectedId })));
     }
-  }, [storeNodes, selectedId, layoutKey, dark, autoLayout, setNodes, setEdges]);
+  }, [storeNodes, selectedId, layoutKey, dark, autoLayout, collapsedGroups, setNodes, setEdges]);
 
   const toggleAutoLayout = useCallback(() => {
     setAutoLayout((v) => {
@@ -176,6 +252,15 @@ export function ConversationTree() {
       return next;
     });
   }, []);
+
+  const handleToggleAllCollapse = useCallback(() => {
+    if (collapsedGroups.size > 0) {
+      expandAllRuns();
+    } else {
+      const runs = computeCollapsibleRuns(storeNodes);
+      collapseAllRuns([...runs.keys()]);
+    }
+  }, [storeNodes, collapsedGroups, collapseAllRuns, expandAllRuns]);
 
   const exportJSON = useCallback(() => {
     setShowExportMenu(false);
@@ -227,7 +312,9 @@ export function ConversationTree() {
   }, [P.base]);
 
   const onNodeClick = useCallback(
-    (_: React.MouseEvent, node: Node<TreeNode>) => {
+    (_: React.MouseEvent, node: Node) => {
+      // CollapsedNodeComponent handles its own click (toggleCollapse); don't select it
+      if (node.type === "collapsedGroup") return;
       selectNode(node.id);
     },
     [selectNode]
@@ -385,6 +472,21 @@ export function ConversationTree() {
             }}
           >
             ↩ Undo {undoStack.length > 0 && `(${undoStack.length})`}
+          </button>
+          <button
+            onClick={handleToggleAllCollapse}
+            title={collapsedGroups.size > 0 ? "Expand all collapsed groups" : "Collapse long main-thread runs"}
+            style={{
+              display: "flex", alignItems: "center", gap: 5,
+              padding: "6px 10px", borderRadius: 8, border: "none", cursor: "pointer",
+              background: collapsedGroups.size > 0 ? P.blue : P.surface1,
+              color: collapsedGroups.size > 0 ? (dark ? P.crust : "#fff") : P.subtext1,
+              fontSize: 11, fontWeight: 600, fontFamily: "inherit",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
+              transition: "background 0.15s, color 0.15s",
+            }}
+          >
+            {collapsedGroups.size > 0 ? "▶ Expand" : "▼ Collapse"}
           </button>
           <button
             onClick={toggleAutoLayout}

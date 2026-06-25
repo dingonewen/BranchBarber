@@ -39,6 +39,7 @@ interface BranchBarberState {
   // Bumped by snap/unbranch to force ReactFlow to re-read positions from store
   layoutKey: number;
   undoStack: Array<Record<string, TreeNode>>;
+  collapsedGroups: Set<string>;
 
   pushUndo: () => void;
   undo: () => Record<string, TreeNode> | null;
@@ -57,6 +58,9 @@ interface BranchBarberState {
   reparentNode: (nodeId: string, newParentId: string | null) => void;
   shiftSubtree: (nodeId: string, dx: number, dy: number) => void;
   bumpLayoutKey: () => void;
+  toggleCollapse: (anchorId: string) => void;
+  collapseAllRuns: (anchorIds: string[]) => void;
+  expandAllRuns: () => void;
   setSidebarVisible: (v: boolean) => void;
   setSidebarTab: (tab: "tree" | "settings") => void;
   setProcessing: (v: boolean) => void;
@@ -113,6 +117,7 @@ export const useBranchStore = create<BranchBarberState>((set, get) => ({
   darkMode: false,
   layoutKey: 0,
   undoStack: [],
+  collapsedGroups: new Set<string>(),
 
   pushUndo: () => set((state) => ({
     undoStack: [...state.undoStack.slice(-19), { ...state.nodes }],
@@ -131,7 +136,7 @@ export const useBranchStore = create<BranchBarberState>((set, get) => ({
   },
 
   clearConversation: () =>
-    set({ nodes: {}, rootNodeId: null, currentNodeId: null, selectedNodeId: null, driftAlert: null }),
+    set({ nodes: {}, rootNodeId: null, currentNodeId: null, selectedNodeId: null, driftAlert: null, collapsedGroups: new Set() }),
 
   setConversation: (id, meta) => set({ conversationId: id, conversationMeta: meta }),
 
@@ -215,6 +220,19 @@ export const useBranchStore = create<BranchBarberState>((set, get) => ({
     }),
 
   bumpLayoutKey: () => set((state) => ({ layoutKey: state.layoutKey + 1 })),
+
+  toggleCollapse: (anchorId) =>
+    set((state) => {
+      const next = new Set(state.collapsedGroups);
+      if (next.has(anchorId)) next.delete(anchorId); else next.add(anchorId);
+      return { collapsedGroups: next };
+    }),
+
+  collapseAllRuns: (anchorIds) =>
+    set(() => ({ collapsedGroups: new Set(anchorIds) })),
+
+  expandAllRuns: () =>
+    set(() => ({ collapsedGroups: new Set() })),
 
   setSidebarVisible: (v) => set({ sidebarVisible: v }),
   setSidebarTab: (tab) => set({ sidebarTab: tab }),
