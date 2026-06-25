@@ -361,7 +361,7 @@ async function _doScan(): Promise<void> {
       }).catch(() => {});
     }
 
-    injectBranchButton(aiTurns[i], nodeId);
+    injectBranchButton(aiTurns[i], nodeId, isSideQuest);
   }
 
   setTimeout(reinjectButtons, 300);
