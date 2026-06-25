@@ -17,6 +17,13 @@ export const CollapsedNodeComponent = memo(({ data, selected }: NodeProps<Collap
   const P             = tc(dark);
   const accent        = branchColor(data.posX, dark);
 
+  // Stacked card shadow: 1-2 offset layers behind the main card + drop shadow
+  const s1 = dark ? P.surface0 : "#d0d0dc";
+  const s2 = dark ? "#282838"  : "#c0c0cc";
+  const stackShadow = data.count >= 3
+    ? `4px 4px 0 0 ${s1}, 8px 8px 0 0 ${s2}, 0 3px 8px rgba(0,0,0,${dark ? "0.4" : "0.1"})`
+    : `4px 4px 0 0 ${s1}, 0 3px 8px rgba(0,0,0,${dark ? "0.4" : "0.1"})`;
+
   return (
     <div
       onClick={() => toggleCollapse(data.anchorId)}
@@ -29,7 +36,7 @@ export const CollapsedNodeComponent = memo(({ data, selected }: NodeProps<Collap
         fontSize: 11,
         cursor: "pointer",
         color: P.subtext1,
-        boxShadow: `0 2px 6px rgba(0,0,0,${dark ? "0.3" : "0.07"})`,
+        boxShadow: stackShadow,
         transition: "border-color 0.15s",
         userSelect: "none" as const,
       }}

@@ -76,6 +76,41 @@ function computeDagrePositions(
 // Only chains of length >= MIN_COLLAPSE_RUN are returned (shorter chains aren't worth collapsing).
 const MIN_COLLAPSE_RUN = 5;
 
+// When runs are collapsed, shift all descendant nodes up so the canvas compresses.
+// For each visible node, walk up its ancestor chain and sum the pixel savings
+// contributed by every collapsed run whose last node is an ancestor of this node.
+function computeCollapsePositionOverrides(
+  storeNodes: Record<string, TreeNode>,
+  collapsedGroups: Set<string>,
+  runs: Map<string, string[]>
+): Record<string, { x: number; y: number }> | undefined {
+  if (collapsedGroups.size === 0) return undefined;
+
+  const hiddenNodeIds = new Set<string>();
+  const savingsAtLast = new Map<string, number>(); // lastId → pixels saved
+
+  for (const [anchorId, run] of runs) {
+    if (!collapsedGroups.has(anchorId)) continue;
+    for (let i = 1; i < run.length; i++) hiddenNodeIds.add(run[i]);
+    savingsAtLast.set(run[run.length - 1], (run.length - 1) * NODE_H);
+  }
+
+  const overrides: Record<string, { x: number; y: number }> = {};
+
+  for (const [id, node] of Object.entries(storeNodes)) {
+    if (hiddenNodeIds.has(id)) continue;
+    let totalSavings = 0;
+    let curId: string | null = node.parentId;
+    while (curId) {
+      if (savingsAtLast.has(curId)) totalSavings += savingsAtLast.get(curId)!;
+      curId = storeNodes[curId]?.parentId ?? null;
+    }
+    if (totalSavings > 0) overrides[id] = { x: node.position.x, y: node.position.y - totalSavings };
+  }
+
+  return Object.keys(overrides).length > 0 ? overrides : undefined;
+}
+
 function computeCollapsibleRuns(
   nodes: Record<string, TreeNode>
 ): Map<string, string[]> {
@@ -223,7 +258,9 @@ export function ConversationTree() {
 
   useEffect(() => {
     const runs = autoLayout ? new Map<string, string[]>() : computeCollapsibleRuns(storeNodes);
-    const positionOverrides = autoLayout ? computeDagrePositions(storeNodes) : undefined;
+    const positionOverrides = autoLayout
+      ? computeDagrePositions(storeNodes)
+      : computeCollapsePositionOverrides(storeNodes, collapsedGroups, runs);
 
     const collapseHash = [...collapsedGroups].sort().join(",");
     const structure = Object.values(storeNodes)
@@ -479,8 +516,8 @@ export function ConversationTree() {
             style={{
               display: "flex", alignItems: "center", gap: 5,
               padding: "6px 10px", borderRadius: 8, border: "none", cursor: "pointer",
-              background: collapsedGroups.size > 0 ? P.blue : P.surface1,
-              color: collapsedGroups.size > 0 ? (dark ? P.crust : "#fff") : P.subtext1,
+              background: collapsedGroups.size > 0 ? P.blue : P.mauve,
+              color: dark ? P.crust : "#fff",
               fontSize: 11, fontWeight: 600, fontFamily: "inherit",
               boxShadow: "0 1px 4px rgba(0,0,0,0.1)",
               transition: "background 0.15s, color 0.15s",
