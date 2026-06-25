@@ -209,6 +209,9 @@ async function _doScan(): Promise<void> {
   const isLiveTurn = initialNewCount === 1;
 
   for (let i = processedCount; i < pairCount; i++) {
+    // Bail out if extension was invalidated mid-scan (e.g. uninstalled or reloaded)
+    if (!isContextValid()) break;
+
     // Re-query DOM each iteration — Angular may re-render between awaits
     userTurns = getUserTurns(platform);
     aiTurns   = getAITurns(platform);
@@ -241,15 +244,15 @@ async function _doScan(): Promise<void> {
     // Fire embedding in background — updates DB when it arrives, doesn't block node creation
     requestEmbedding(textForEmbedding, nodeId).then((emb) => {
       if (emb.length === 0) return;
-      db.nodes.update(nodeId, { embedding: emb });
+      db.nodes.update(nodeId, { embedding: emb }).catch(() => {});
       if (!isRoot && parentNodeId) {
         db.nodes.get(parentNodeId).then((p) => {
           if (!p?.embedding?.length) return;
           const newDrift = 1 - cosineSimilarity(emb, p.embedding!);
-          db.nodes.update(nodeId, { driftScore: newDrift });
-        });
+          db.nodes.update(nodeId, { driftScore: newDrift }).catch(() => {});
+        }).catch(() => {});
       }
-    });
+    }).catch(() => {});
 
     const isSideQuest = driftScore > settings.driftThreshold;
 
@@ -334,6 +337,10 @@ async function _doScan(): Promise<void> {
     };
 
     await upsertNode(node);
+    // Mark as processed immediately after DB commit — if anything below throws,
+    // we won't reprocess this turn and create a duplicate node on the next scan.
+    processedCount = i + 1;
+
     upsertConversation({
       id: conversationId, url: getConversationUrl(), title: getConversationTitle(),
       rootNodeId: isRoot ? nodeId : useBranchStore.getState().rootNodeId,
@@ -343,7 +350,6 @@ async function _doScan(): Promise<void> {
     useBranchStore.getState().addNode(node);
 
     if (isLiveTurn && (useGemini || useClaude)) {
-      console.log("[BranchBarber] Requesting AI summary — mode:", settings.summaryMode, "node:", nodeId);
       const summarize = useGemini
         ? summarizeWithGemini(prompt, response, settings.geminiApiKey)
         : summarizeWithClaude(prompt, response, settings.claudeApiKey ?? "");
@@ -356,7 +362,6 @@ async function _doScan(): Promise<void> {
     }
 
     injectBranchButton(aiTurns[i], nodeId);
-    processedCount = i + 1;
   }
 
   setTimeout(reinjectButtons, 300);
