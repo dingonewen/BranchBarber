@@ -299,10 +299,10 @@ async function _doScan(): Promise<void> {
               ? inferGhostTopic(ctx, settings.geminiApiKey)
               : inferGhostTopicClaude(ctx, settings.claudeApiKey ?? "");
             labelPromise.then((label) => {
-              db.nodes.update(ghostId, { label, summary: label });
+              db.nodes.update(ghostId, { label, summary: label }).catch(() => {});
               useBranchStore.getState().updateNodeLabel(ghostId, label);
-            });
-          });
+            }).catch(() => {});
+          }).catch(() => {});
         }
       }
 
@@ -355,10 +355,10 @@ async function _doScan(): Promise<void> {
         : summarizeWithClaude(prompt, response, settings.claudeApiKey ?? "");
       summarize.then((summary) => {
         if (summary && summary !== fallbackLabel) {
-          db.nodes.update(nodeId, { label: summary, summary });
+          db.nodes.update(nodeId, { label: summary, summary }).catch(() => {});
           useBranchStore.getState().updateNodeLabel(nodeId, summary);
         }
-      });
+      }).catch(() => {});
     }
 
     injectBranchButton(aiTurns[i], nodeId);
