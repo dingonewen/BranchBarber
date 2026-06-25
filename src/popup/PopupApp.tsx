@@ -163,7 +163,7 @@ export function PopupApp() {
         </div>
       )}
 
-      <div style={S.footer}>v1.0.0 · Local-first · No telemetry</div>
+      <div style={S.footer}>v1.2.0 · Local-first · No telemetry</div>
     </div>
   );
 }

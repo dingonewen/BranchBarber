@@ -1,6 +1,6 @@
 {
   "name": "branch-barber",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "BranchBarber - LLM Conversation Tree Extension",
   "scripts": {
     "dev": "webpack --mode development --watch",
